@@ -1,0 +1,2897 @@
+---
+title: "ProjectRshiny_Infographics"
+author: "HAIXIA BIAN"
+date: "April 17, 2019"
+output: pdf_document
+---
+
+##This is the help document and code for "DC RESIDENTIAL PROPERTIES WEB BASED APPLICATION"
+
+##WEB APPLICATICATION USER GUIDE
+
+INTRODUCTION TO WEB APP:
+
+DC Residential Properties web app was developed with the aim of providing  user the information regarding the DC Properties. The user can select different variables in the widget and see the variation of prices of DC properties based on those variables.  We have also provided an interactive map for the convenience of the users. They can select a zip code and see the location wise details of each and every property. The users can hover over the map and see details about each and every property.
+The main purpose of building this app is to help user provide accurate information and trend about the DC Residential properties and help them figure out which property is best for them.
+
+
+INTERACTIVE MAP PAGE
+
+1.) First select one or multiple zip code from the Zip code option available in widget
+
+2.) As you select a zip code this map will be generated. Now each circle represent a main cluster of house. You can click on the cluster of your choice, it will open another group of cluster of houses based on their proximity to each other.
+
+3.) When you  select a cluster you will see further clustering . 
+
+4.) Finally you will get markers of individual houses. Yor can see different colour markers. Each markers indicates the price ranges of the property.(e.g. The green marker indicates price of the house is below 1 million)
+
+5.) You can also click on a particular marker to check the details of the house like the exact address of house, Price, No. of Room, Land Area, No. of bedroom etc.
+
+                       
+PLOT PAGE 
+
+1.)  There are two widgets for two different axis. You can select from four different variables namely price, average price, sale and ave sale for y-axis and various different variables for x axis and see different trends based on the selected variable.
+
+2.) Whenever you select a particular x axis variable and y axis variable you will get a plot corresponing to those selected variables (Default Plots).
+
+3.) If you face difficulty in understanding a particular default plot you can select from plot widget different options which you can understand easily.
+
+4.) When you select a particular kind of plot type the default plot will change accoring to the selected option.
+
+5.) You can also use color filter to see the trend in price with two different kind of variable at   a same time. But to use this filter you have click on "check to visualize box".
+
+6.) When you select x variable, y variable and the color filter you will get a output which will show you price trend of DC Properties base on those two variable.
+
+7.)  You can also use the toggle options to remove the unnecessary records (Outliers) from the plots and see better trends in the plot. To use this option first select the points on the plot using your mouse and then click on the toggle points.
+                              
+8.)  When you follow the above mentioned step all the data you wanted to eliminate will be removed from your plots. If you want to get those point back you can click on the reset option.
+ 
+
+
+## Code section 
+```{r cache=FALSE, warning=FALSE,results='hide',message=FALSE}
+
+#install.packages("Hmisc")
+#install.packages("dplyr")
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+#library(Hmisc)
+
+#Data import----
+library(tidyverse)
+library(readr)
+DC_Properties_raw <- 
+  read.csv("D:/School/courses/Visualization/R/Final Project/dataset/dc-residential-properties/DC_Properties.csv")
+
+#Data tidy----
+library(tidyr)
+DC_Properties_ <- DC_Properties_raw[ c(1:14, 16:22, 26:27,29,30, 34:40, 43:49)]
+names(DC_Properties_)[1] = "ID"
+
+
+#tidy the dates:exculde the precise time information of the "saledate" and #"GIS_LAST_MOD_DTTM" becuase all the time information are the same.
+# only incude month/day/year format
+DC_Properties3 <-  DC_Properties_ %>% 
+  separate(
+    SALEDATE,
+    into = c("SALEDATE","time"),
+    sep=" ",
+    convert=TRUE
+  )%>% 
+  separate(
+    GIS_LAST_MOD_DTTM,
+    into = c("GIS_LAST_MOD_DTTM","time2"),
+    sep=" ",
+    convert=TRUE
+  )
+
+#filter the time information 
+DC_Properties_<- DC_Properties3[c(1:13,15:26,28:41)]
+#ncol(DC_Properties3)
+## deal with NAs variables
+Deal_Prop <- NULL
+percentage <- NULL
+for (i in 1:ncol(DC_Properties_)) {
+  NAnumber_percentage <- sum(is.na(DC_Properties_[i]))/nrow(DC_Properties_)
+  if(NAnumber_percentage>0)
+    {Deal_Prop <- c(Deal_Prop,i)
+    percentage <- c(percentage,NAnumber_percentage)
+  }
+}
+dealNA <- data.frame(Deal_Prop, percentage) # the column # of properties need to be handled
+
+#return the total number of NA value
+
+# distribution judgement
+library(ggplot2)
+dist <- sapply(DC_Properties_[10], as.numeric)
+hist(dist,freq = FALSE)
+
+#find correlation to analyze the correlation between variables----
+# cornum <- sapply(DC_Properties,as.numeric)
+# corTable <- cor(cornum[,1:29],use = "complete.obs")
+# corTable
+#write.csv(corTable, file = "D:/School/courses/Visualization/R/Final Project/DC_Propertites/www/write/cor.csv")
+
+#since the sample size is pretty large, just use centralvalue to fill the NAs----
+#install.packages("DMwR")
+library(lattice)
+library(grid)
+library(DMwR)
+DC_Properties <- DC_Properties_
+#use central value to fill out the NAs.
+for (i in c(2,3,6:12,14:18,22:25,29,31,32)) {
+  DC_Properties[i] <- centralImputation(DC_Properties[i])
+}
+
+#lolumn 4,5,13(date),19,20,21,26(full address),39 are non-numeric variables/ 27,28,30,33,34:38,
+#we'll not anaylze them because the meaninglessness
+
+#deal with the values that are not logical manually, such as year value "20"----
+which(DC_Properties$YR_RMDL=="20")
+DC_Properties[56601,10] <- 2000
+
+#deal with non-numeric variables by using mode value----
+#Function to find mode value for non-numeric variables by using frequency.-----
+MS <- function(x){
+  rowmax <- which(as.data.frame(table(x))[2]==max(as.data.frame(table(x))[2]))
+  as.data.frame(table(x))[rowmax,1]
+}
+# #find mode for "Heat" column 4 and replace "No Data" with MOde---- 
+# DC_Properties_nonNAs <- DC_Properties
+# new4 <- DC_Properties_nonNAs %>% 
+#   dplyr::filter(DC_Properties_nonNAs[4]!="No Data")
+# MS(new4[4]) #"Forced Air" is mode
+# impute(DC_Properties$HEAT,MS(new4[4]))
+# DC_Properties[DC_Properties=="No Data"] <- "Forced Air"
+# which(is.na(DC_Properties$HEAT)==TRUE)
+
+#find mode for "AC"----
+# dc_AC <- DC_Properties
+# MS(dc_AC$AC)
+# DC_Properties[DC_Properties=="0"] <- "Y"
+# 
+# #deal with NAs for "saledate"----
+# dc_date <- DC_Properties
+# tabledate <- as.data.frame(dc_date$SALEDATE) 
+# names(tabledate)="SALEDATE"
+# tabledate %>% 
+#   separate(SALEDATE, into = c("SALEDATE1","SALEDATE2","SALEDATE3")) %>% 
+#   unite(SALEDATE, SALEDATE1, SALEDATE2, SALEDATE3, sep = "")
+# tabledate$SALEDATE <- as.numeric(tabledate$SALEDATE)
+
+#mice package fill out missing values-----
+# library(lattice)
+# library(MASS)
+# library(nnet)
+# library(mice)
+# dc_dd <- mice(dc_date,m=4)
+# fit <- with(dc_dd, Im(PRICE~SALEDATE,data=dc_date))
+# pooled <- pool(fit)
+# summary(pooled)
+# result <- complete(dc_dd,action = 3)
+
+# MS(tabledate$SALEDATE)
+#which(is.na(DC_Properties$SALEDATE)==TRUE)
+# which(DC_Properties$SALEDATE=="")
+# DC_Properties <- DC_Properties %>% 
+#   dplyr::filter(DC_Properties$SALEDATE!="")
+# 
+ #deal with NAs of Grade----
+#which(is.na(DC_Properties[20]))
+MS(DC_Properties[20])
+DC_Properties <- DC_Properties %>%
+  dplyr::filter(is.na(DC_Properties$GRADE)==FALSE)
+
+
+#DC_Properties # tidy dataset----
+ncol(DC_Properties)
+#write.csv(DC_Properties,file = "D:/School/courses/Visualization/R/Final Project/DC_Propertites/www/write/DC_Tidy.csv")
+#which(rowSums(is.na(DC_Properties))>0)
+#Refine known messy data manually----
+## change abnormal stories data by style
+#styles_dfa <- which(DC_Properties$STYLE=="Default",arr.ind = TRUE)
+#if(DC_Properties$STYLE!="Default"){
+  
+#}
+
+
+#trivial----
+#Find all Zipcodes and freq
+zipcode <- as.data.frame(table(DC_Properties$ZIPCODE))
+type <- as.character(zipcode$Var1) 
+
+plot_ts <- c("Bar","Point","Line","Boxplot","Area")
+
+dc_price <- DC_Properties$PRICE[-which(DC_Properties$PRICE<100)]
+
+dc_price[which(dc_price==10)]
+
+mapdata <- DC_Properties[1:40000,]
+#dc_f1 <- NULL
+##find Quadrant
+Quadrant <- as.data.frame(table(DC_Properties$QUADRANT))
+#properties input 
+PropertiesType <- c("Number of Bathroom", "Number of Half-Bathroom","Heating System",
+                    "Air Conditioning","Number of Units","Nunber of Rooms",
+                    "Number of Bedrooms","The year main portion of the building was built",
+                    "Year structure was remodeled","Most recent improvement year",
+                    "Number of stories","Sale date","Sale number","Gross building area",
+                    "Structure","Grade","Condition","Number of kitchen","Number of fireplace",
+                    "Land area","Zipcode","Quadrant")
+#choice of "check to visuaization"
+choice_visual <- names(DC_Properties)
+vi_details_size <- c(choice_visual[2:3],choice_visual[6:8],choice_visual[12],
+                     choice_visual[15],choice_visual[16],choice_visual[22:24])
+vi_details_color <- c(choice_visual[5],choice_visual[20:21],choice_visual[39])
+
+#avg.price of each factors----
+Num_units_meanP <-dplyr::summarize(group_by(DC_Properties,NUM_UNITS),mean(PRICE))
+Num_Rooms_meanP <- summarize(group_by(DC_Properties,ROOMS),mean(PRICE))
+Num_Bedroom_meanP <- summarize(group_by(DC_Properties,BEDRM),mean(PRICE)) 
+Num_stories_meanP <-  summarize(group_by(DC_Properties,STORIES),mean(PRICE))
+Kitchen_meanp <- summarize(group_by(DC_Properties,KITCHENS),mean(PRICE))
+Fireplace_meanP <- summarize(group_by(DC_Properties,FIREPLACES),mean(PRICE))
+Salenum_meanP <-  summarize(group_by(DC_Properties,SALE_NUM),mean(PRICE))
+AYB_meanP <-  summarize(group_by(DC_Properties,AYB),mean(PRICE))
+# AYB_meanP1 <-  as.integer(AYB_meanP$AYB)
+# AYB_meanP1_min <- min(AYB_meanP1)
+# AYB_meanP1_max <- max(AYB_meanP1)
+# as.data.frame(AYB_meanP)
+
+YR_RMDL_meanP <-  summarize(group_by(DC_Properties,YR_RMDL),mean(PRICE))
+EYB_meanP <-  summarize(group_by(DC_Properties,EYB),mean(PRICE))
+SaleDate_meanP <-  summarize(group_by(DC_Properties,SALEDATE),mean(PRICE))
+
+GBA_meanP <-  summarize(group_by(DC_Properties,GBA),mean(PRICE))
+LandArea_meanP <-  summarize(group_by(DC_Properties,LANDAREA),mean(PRICE))
+struct_meanP <-  summarize(group_by(DC_Properties,STRUCT),mean(PRICE))
+struct_meanP <- struct_meanP[-which(struct_meanP$STRUCT==""),]
+struct_meanP1 <- as.character(struct_meanP$STRUCT)
+Grade_meanP <- summarize(group_by(DC_Properties,GRADE),mean(PRICE))
+Grade_meanP <- Grade_meanP[-which(Grade_meanP$GRADE==""),]
+Grade_meanP1 <- as.character(Grade_meanP$GRADE)
+Condition_meanP <- summarize(group_by(DC_Properties,CNDTN),mean(PRICE))
+Condition_meanP <- Condition_meanP[-which(Condition_meanP$CNDTN==""),]
+Condition_meanP1 <- as.character(Condition_meanP$CNDTN) 
+Zipcode_meanp <-summarize(group_by(DC_Properties,ZIPCODE),mean(PRICE))
+Quadrant_meanP <- summarize(group_by(DC_Properties,QUADRANT),mean(PRICE))
+Quadrant_meanP <- Quadrant_meanP[-which(Quadrant_meanP$QUADRANT==""),]
+Quadrant_meanP1 <- as.character(Quadrant_meanP$QUADRANT)
+heat_meanP <- summarize(group_by(DC_Properties,HEAT),mean(PRICE))
+heat_meanP1 <- as.character(heat_meanP$HEAT)
+AC_meanP <- summarize(group_by(DC_Properties,AC),mean(PRICE))
+AC_meanP <- AC_meanP[-which(AC_meanP$AC=="0"),]
+AC_meanP1 <- as.character(AC_meanP$AC)
+
+#as.data.frame(Num_Rooms_meanP)
+
+
+
+#plots----
+#violin plot
+#p <- ggplot(DC_Properties,aes(AC,PRICE,fill=AC))
+#p+geom_violin(alpha=0.3,width=0.9)+geom_jitter(shape=21)
+
+#bathRm & AC-> price----
+##group and summarize data
+# as.vector(unlist(DC_Properties[2]))
+# BR_PR <- summarize(group_by(DC_Properties,as.vector(unlist(DC_Properties[2]))),mean(PRICE))
+# names(BR_PR) <- c(names(DC_Properties[2]), "Avg.Price")
+# a <- names(BR_PR)[1]
+# ggplot(BR_PR)+
+#   geom_bar(BR_PR,mapping = aes(a, y=Avg.Price,fill=Avg.Price),
+#            stat = "identity",
+#            show.legend = FALSE,
+#            color="white"
+#   )
+
+BR_PR <- summarize(group_by(DC_Properties,BATHRM),mean(PRICE))
+names(BR_PR) <- c("BATHRM", "Avg.Price")
+ggplot(BR_PR,BR_PR,mapping = aes(x=BATHRM, y=Avg.Price,fill=Avg.Price))+
+  geom_bar(
+           stat = "identity",
+           show.legend = FALSE,
+           color="white"
+  )
+
+#options(max.print=1000000)
+BR_PR_AC <- summarize(group_by(DC_Properties,AC,BATHRM),mean(PRICE))
+BR_PR_AC <- BR_PR_AC[-which(BR_PR_AC$AC=="0"),]
+names(BR_PR_AC) <- c("AC","BATHRM","Avg.Price")
+BR_PR_AC <- as.data.frame(BR_PR_AC)
+
+
+#set colors for AC
+col <- c("hotpink","springgreen4")
+BathRM <- ggplot(BR_PR_AC)+
+  geom_bar(mapping = aes(BATHRM, Avg.Price, fill=factor(AC)), 
+                  stat = "identity",
+           show.legend = FALSE,
+           color="white"
+           )+scale_fill_brewer(palette = "Accent")+
+  ylim(0,6.8e+06)+
+  labs(x='Number of Bathroom',y='Avg.Price')+
+  theme(panel.grid =element_blank())+
+  theme(axis.text.y = element_blank())+
+  theme(axis.ticks.y = element_blank())+   
+  theme(panel.border = element_blank()) +   
+  theme(axis.line = element_line(size=1, colour = "white")) 
+  #coord_flip()
+#scale_fill_manual(values = col,limits=c("N","Y"))
+BathRMShow1 <- function(){
+  BathRM
+}  
+#Hf_bathRm & AC-> price----
+HFBR_PR_AC <- summarize(group_by(DC_Properties,AC,HF_BATHRM),mean(PRICE))
+HFBR_PR_AC <- HFBR_PR_AC[-which(HFBR_PR_AC$AC=="0"),]
+names(HFBR_PR_AC) <- c("AC","Hf_Bathroom","Avg.Price")
+Hf_BathRM <- ggplot(HFBR_PR_AC)+
+  geom_bar(mapping = aes(Hf_Bathroom,Avg.Price,fill=factor(AC)),
+           stat = "identity",
+           show.legend = FALSE,
+           color="white"
+           
+           )+
+  scale_fill_brewer(palette = "Accent")+
+  ylim(0,6.8e+06)+
+  labs(x='Number of Half-bathroom',y=NULL,title = NULL)+
+  theme(panel.grid =element_blank())+
+  theme(axis.text.y = element_blank())+
+  theme(axis.ticks.y = element_blank())+
+  theme(panel.border = element_blank()) +  
+  theme(axis.line = element_line(size=1, colour = "white"))
+  
+#print Bathroom/price and hf_bathrm/price on 1 page----
+BathRM_AC_Hf <- function(){
+  library(grid)
+  grid.newpage()
+  pushViewport(viewport(layout = grid.layout(1,2)))
+  BathRMShow=function(x,y)
+    viewport(layout.pos.row = x, layout.pos.col = y)
+  print(BathRM,vp=BathRMShow(1,1))
+  print(Hf_BathRM ,vp=BathRMShow(1,2))
+}
+
+
+
+# DC_Properties %>% 
+#   filter(ZIPCODE%in%c(20001:20005)) %>% 
+#   filter(AC%in%"N")
+
+  
+
+
+
+
+
+#plotmap-----
+
+#Functions for default settings of each combination (Avg.Price)
+#plot : bath-color----
+BR <- function(x){
+  BR_PR <- summarize(group_by(x,BATHRM),mean(PRICE))
+  names(BR_PR) <- c("BATHRM", "Avg.Price")
+  as.data.frame(BR_PR)
+}
+
+
+BR_AC <- function(x){
+  BR_PR_AC <- summarize(group_by(x,AC,BATHRM),mean(PRICE))
+  BR_PR_AC <- BR_PR_AC[-which(BR_PR_AC$AC=="0"),]
+  names(BR_PR_AC) <- c("AC","BATHRM","Avg.Price")
+  as.data.frame(BR_PR_AC)
+}
+
+BR_HE <- function(x){
+  BR_PR_HE<-summarize(group_by(x,HEAT,BATHRM),mean(PRICE))
+  names(BR_PR_HE) <- c("HEAT","BATHRM","Avg.Price")
+  as.data.frame(BR_PR_HE)
+}
+
+BR_gr <- function(x){
+  BR_PR_gr<- summarize(group_by(x,GRADE,BATHRM),mean(PRICE))
+  names(BR_PR_gr) <- c("GRADE","BATHRM","Avg.Price")
+  as.data.frame(BR_PR_gr)
+}
+
+BR_CN <- function(x){
+  BR_PR_CN <-  summarize(group_by(x,CNDTN,BATHRM),mean(PRICE))
+  names(BR_PR_CN) <- c("CNDTN","BATHRM","Avg.Price")
+  as.data.frame(BR_PR_CN)
+}
+
+BR_QA <- function(x){
+  BR_PR_QA <-  summarize(group_by(x,QUADRANT,BATHRM),mean(PRICE))
+  names(BR_PR_QA) <- c("QUADRANT","BATHRM","Avg.Price")
+  as.data.frame(BR_PR_QA)
+}
+
+
+#halfbath----
+HFBR<- function(x){
+  HFBR_PR <- summarize(group_by(x,HF_BATHRM),mean(PRICE))
+  names(HFBR_PR) <- c("HF_BATHRM","Avg.Price")
+  as.data.frame(HFBR_PR)
+}
+
+HFBR_AC <- function(x){
+  HFBR_PR_AC <- summarize(group_by(x,AC,HF_BATHRM),mean(PRICE))
+  HFBR_PR_AC <- HFBR_PR_AC[-which(HFBR_PR_AC$AC=="0"),]
+  names(HFBR_PR_AC) <- c("AC","HF_BATHRM","Avg.Price")
+  as.data.frame(HFBR_PR_AC)
+}
+
+HFBR_HE <- function(x){
+  HFBR_PR_HE <- summarize(group_by(x,HEAT,HF_BATHRM),mean(PRICE))
+  names(HFBR_PR_HE) <- c("HEAT","HF_BATHRM","Avg.Price")
+  as.data.frame(HFBR_PR_HE)
+}
+
+HFBR_gr <- function(x){
+  HFBR_PR_gr <- summarize(group_by(x,GRADE,HF_BATHRM),mean(PRICE))
+  HFBR_PR_gr <- HFBR_PR_gr[-which(HFBR_PR_gr$GRADE==""),]
+  names(HFBR_PR_gr) <- c("GRADE","HF_BATHRM","Avg.Price")
+  as.data.frame(HFBR_PR_gr)
+}
+
+HFBR_CN <- function(x){
+  HFBR_PR_CN <- summarize(group_by(x,CNDTN,HF_BATHRM),mean(PRICE))
+  HFBR_PR_CN <- HFBR_PR_CN[-which(HFBR_PR_CN$CNDTN==""),]
+  names(HFBR_PR_CN) <- c("CNDTN","HF_BATHRM","Avg.Price")   
+  as.data.frame(HFBR_PR_CN)
+}
+
+HFBR_QA <- function(x){
+  HFBR_PR_QA <- summarize(group_by(x,QUADRANT,HF_BATHRM),mean(PRICE))
+  HFBR_PR_QA <- HFBR_PR_QA [-which(HFBR_PR_QA$QUADRANT==""),]
+  names(HFBR_PR_QA) <- c("QUADRANT","HF_BATHRM","Avg.Price")
+  as.data.frame(HFBR_PR_QA)
+}
+
+
+#heat----
+HE <- function(x){
+  HE_PR <- summarize(group_by(x,HEAT),mean(PRICE))
+  names(HE_PR) <- c("HEAT","Avg.Price")
+  
+  as.data.frame(HE_PR)
+}
+
+HE_AC <- function(x){
+  HE_PR_AC <- summarize(group_by(x,AC,HEAT),mean(PRICE))
+  HE_PR_AC <- HE_PR_AC[-which(HE_PR_AC$AC=="0"),]
+  names(HE_PR_AC) <- c("AC","HEAT","Avg.Price")
+  as.data.frame(HE_PR_AC)
+}
+
+
+HE_HE <- function(x){
+  HE(x)
+  as.data.frame(HE(x))
+}
+
+HE_gr <- function(x){
+  HE_PR_gr <- summarize(group_by(x,GRADE,HEAT),mean(PRICE))
+  HE_PR_gr <- HE_PR_gr[-which(HE_PR_gr$GRADE==""),]
+  names(HE_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(HE_PR_gr)
+  
+} 
+
+HE_CN <- function(x){
+  HE_PR_CN <- summarize(group_by(x,CNDTN,HEAT),mean(PRICE))
+  HE_PR_CN <- HE_PR_CN[-which(HE_PR_CN$CNDTN==""),]
+  names(HE_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(HE_PR_CN)
+} 
+
+HE_QA <- function(x){
+  HE_PR_QA <- summarize(group_by(x,QUADRANT,HEAT),mean(PRICE))
+  HE_PR_QA <- HE_PR_QA [-which(HE_PR_QA$QUADRANT==""),]
+  names(HE_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(HE_PR_QA)
+}
+
+
+#AC----
+AC <- function(x){
+  AC_PR <- summarize(group_by(x,AC),mean(PRICE))
+  AC_PR <- AC_PR[-which(AC_PR$AC=="0"),]
+  names(AC_PR)[2] <- "Avg.Price"
+  as.data.frame(AC_PR)
+}
+
+
+AC_AC <-function(x){
+  AC(x)
+  as.data.frame(AC(x))
+}
+
+AC_gr <- function(x){
+  AC_PR_gr <- summarize(group_by(x,GRADE,AC),mean(PRICE))
+  AC_PR_gr <- AC_PR_gr[-which(AC_PR_gr$AC=="0"|AC_PR_gr$GRADE==""),]
+  names(AC_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(AC_PR_gr)
+}
+
+AC_HE <- function(x){
+  AC_PR_HE <- summarize(group_by(x,HEAT,AC),mean(PRICE))
+  AC_PR_HE <- AC_PR_HE[-which(AC_PR_HE$AC=="0"),]
+  names(AC_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(AC_PR_HE)
+}
+
+AC_CN <- function(x){
+  AC_PR_CN <- summarize(group_by(x,CNDTN,AC),mean(PRICE))
+  AC_PR_CN <- AC_PR_CN[-which(AC_PR_CN$CNDTN==""),]
+  names(AC_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(AC_PR_CN)
+}
+
+AC_QA <- function(x){
+  AC_PR_QA <- summarize(group_by(x,QUADRANT,AC),mean(PRICE))
+  AC_PR_QA <- AC_PR_QA [-which(AC_PR_QA$QUADRANT==""),]
+  names(AC_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(AC_PR_QA)
+}
+
+
+#units----
+UN <- function(x){
+  UN_PR <- summarize(group_by(x,NUM_UNITS),mean(PRICE))
+  #UN_PR <- UN_PR[-which(UN_PR$NUM_UNITS==""),]
+  names(UN_PR)[2] <- "Avg.Price"
+  as.data.frame(UN_PR)
+}
+
+UN_AC <- function(x){
+  UN_PR_AC <- summarize(group_by(x,AC,NUM_UNITS),mean(PRICE))
+  UN_PR_AC <- UN_PR_AC[-which(UN_PR_AC$AC=="0"),]
+  names(UN_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(UN_PR_AC)
+}
+
+UN_gr <- function(x) {
+  UN_PR_gr <- summarize(group_by(x,GRADE,NUM_UNITS),mean(PRICE))
+  UN_PR_gr <- UN_PR_gr[-which(UN_PR_gr$GRADE==""),]
+  names(UN_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(UN_PR_gr)
+  
+}
+
+UN_HE <- function(x){
+  UN_PR_HE <- summarize(group_by(x,HEAT,NUM_UNITS),mean(PRICE))
+  #UN_PR_HE <- UN_PR_HE[-which(UN_PR_HE$AC=="0"),]
+  names(UN_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(UN_PR_HE)
+  
+}
+
+UN_CN <- function(x){
+  UN_PR_CN <- summarize(group_by(x,CNDTN,NUM_UNITS),mean(PRICE))
+  UN_PR_CN <- UN_PR_CN[-which(UN_PR_CN$CNDTN==""),]
+  names(UN_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(UN_PR_CN)
+}
+
+UN_QA <- function(x){
+  UN_PR_QA <- summarize(group_by(x,QUADRANT,NUM_UNITS),mean(PRICE))
+  UN_PR_QA <- UN_PR_QA [-which(UN_PR_QA$QUADRANT==""),]
+  names(UN_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(UN_PR_QA)
+}
+
+
+# rooms----
+RM <- function(x){
+  RM_PR <- summarize(group_by(x,ROOMS),mean(PRICE))
+  #UN_PR <- UN_PR[-which(UN_PR$NUM_UNITS==""),]
+  names(RM_PR)[2] <- "Avg.Price"
+  as.data.frame(RM_PR)
+} 
+
+RM_AC <-  function(x){
+  RM_PR_AC <- summarize(group_by(x,AC,ROOMS),mean(PRICE))
+  RM_PR_AC <- RM_PR_AC[-which(RM_PR_AC$AC=="0"),]
+  names(RM_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(RM_PR_AC)
+}
+
+RM_gr <- function(x){
+  RM_PR_gr <- summarize(group_by(x,GRADE,ROOMS),mean(PRICE))
+  RM_PR_gr <- RM_PR_gr[-which(RM_PR_gr$GRADE==""),]
+  names(RM_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(RM_PR_gr)
+}
+
+RM_HE <- function(x){
+  RM_PR_HE <- summarize(group_by(x,HEAT,ROOMS),mean(PRICE))
+  #UN_PR_HE <- UN_PR_HE[-which(UN_PR_HE$AC=="0"),]
+  names(RM_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(RM_PR_HE)
+}
+
+RM_CN <- function(x){
+  RM_PR_CN <- summarize(group_by(x,CNDTN,ROOMS),mean(PRICE))
+  RM_PR_CN <- RM_PR_CN[-which(RM_PR_CN$CNDTN==""),]
+  names(RM_PR_CN)[3] <- "Avg.Price" 
+  as.data.frame(RM_PR_CN)
+}
+
+RM_QA <- function(x){
+  RM_PR_QA <- summarize(group_by(x,QUADRANT,ROOMS),mean(PRICE))
+  RM_PR_QA <- RM_PR_QA [-which(RM_PR_QA$QUADRANT==""),]
+  names(RM_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(RM_PR_QA)
+}
+
+
+#bedrooms-----
+BRM <- function(x){
+  BRM_PR <- summarize(group_by(x,BEDRM),mean(PRICE))
+  #UN_PR <- UN_PR[-which(UN_PR$NUM_UNITS==""),]
+  names(BRM_PR)[2] <- "Avg.Price"
+  as.data.frame(BRM_PR)
+}
+
+
+BRM_AC <- function(x){
+  BRM_PR_AC <- summarize(group_by(x,AC,BEDRM),mean(PRICE))
+  BRM_PR_AC <- BRM_PR_AC[-which(BRM_PR_AC$AC=="0"),]
+  names(BRM_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(BRM_PR_AC)
+}
+
+BRM_gr <- function(x){
+  BRM_PR_gr <- summarize(group_by(x,GRADE,BEDRM),mean(PRICE))
+  BRM_PR_gr <- BRM_PR_gr[-which(BRM_PR_gr$GRADE==""),]
+  names(BRM_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(BRM_PR_gr)
+}
+
+BRM_HE <- function(x){
+  BRM_PR_HE <- summarize(group_by(x,HEAT,BEDRM),mean(PRICE))
+  #UN_PR_HE <- UN_PR_HE[-which(UN_PR_HE$AC=="0"),]
+  names(BRM_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(BRM_PR_HE)
+  
+}
+
+BRM_CN <- function(x){
+  BRM_PR_CN <- summarize(group_by(x,CNDTN,BEDRM),mean(PRICE))
+  BRM_PR_CN <- BRM_PR_CN[-which(BRM_PR_CN$CNDTN==""),]
+  names(BRM_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(BRM_PR_CN)
+}
+
+BRM_QA <- function(x){
+  BRM_PR_QA <- summarize(group_by(x,QUADRANT,BEDRM),mean(PRICE))
+  BRM_PR_QA <- BRM_PR_QA [-which(BRM_PR_QA$QUADRANT==""),]
+  names(BRM_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(BRM_PR_QA)
+} 
+
+
+#AYB----
+AYB <- function(x){
+  AYB_PR<- summarize(group_by(x,AYB),mean(PRICE))
+  #UN_PR <- UN_PR[-which(UN_PR$NUM_UNITS==""),]
+  names(AYB_PR)[2] <- "Avg.Price"
+  as.data.frame(AYB_PR)
+}
+
+AYB_AC <- function(x){
+  AYB_PR_AC <- summarize(group_by(x,AC,AYB),mean(PRICE))
+  AYB_PR_AC <- AYB_PR_AC[-which(AYB_PR_AC$AC=="0"),]
+  names(AYB_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(AYB_PR_AC)
+}
+
+AYB_gr <- function(x){
+  AYB_PR_gr <- summarize(group_by(x,GRADE,AYB),mean(PRICE))
+  AYB_PR_gr <- AYB_PR_gr[-which(AYB_PR_gr$GRADE==""),]
+  names(AYB_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(AYB_PR_gr)
+}
+
+AYB_HE <- function(x){
+  AYB_PR_HE <- summarize(group_by(x,HEAT,AYB),mean(PRICE))
+  #UN_PR_HE <- UN_PR_HE[-which(UN_PR_HE$AC=="0"),]
+  names(AYB_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(AYB_PR_HE)
+}
+
+AYB_CN <- function(x){
+  AYB_PR_CN <- summarize(group_by(x,CNDTN,AYB),mean(PRICE))
+  AYB_PR_CN <- AYB_PR_CN[-which(AYB_PR_CN$CNDTN==""),]
+  names(AYB_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(AYB_PR_CN)
+}
+
+AYB_QA <- function(x){
+  AYB_PR_QA <- summarize(group_by(x,QUADRANT,AYB),mean(PRICE))
+  AYB_PR_QA <- AYB_PR_QA [-which(AYB_PR_QA$QUADRANT==""),]
+  names(AYB_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(AYB_PR_QA)
+  
+}
+
+
+#RMY------
+RMY <- function(x){
+  RMY_PR<- summarize(group_by(x,YR_RMDL),mean(PRICE))
+  #UN_PR <- UN_PR[-which(UN_PR$NUM_UNITS==""),]
+  names(RMY_PR)[2] <- "Avg.Price"
+  as.data.frame(RMY_PR)
+}
+
+RMY_AC <- function(x){
+  RMY_PR_AC <- summarize(group_by(x,AC,YR_RMDL),mean(PRICE))
+  RMY_PR_AC <- RMY_PR_AC[-which(RMY_PR_AC$AC=="0"),]
+  names(RMY_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(RMY_PR_AC)
+} 
+
+RMY_gr <- function(x){
+  RMY_PR_gr <- summarize(group_by(x,GRADE,YR_RMDL),mean(PRICE))
+  RMY_PR_gr <- RMY_PR_gr[-which(RMY_PR_gr$GRADE==""),]
+  names(RMY_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(RMY_PR_gr)
+} 
+
+RMY_HE <- function(x){
+  RMY_PR_HE <- summarize(group_by(x,HEAT,YR_RMDL),mean(PRICE))
+  #UN_PR_HE <- UN_PR_HE[-which(UN_PR_HE$AC=="0"),]
+  names(RMY_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(RMY_PR_HE)
+}
+
+RMY_CN <- function(x){
+  RMY_PR_CN <- summarize(group_by(x,CNDTN,YR_RMDL),mean(PRICE))
+  RMY_PR_CN <- RMY_PR_CN[-which(RMY_PR_CN$CNDTN==""),]
+  names(RMY_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(RMY_PR_CN)
+}
+
+RMY_QA <- function(x){
+  RMY_PR_QA <- summarize(group_by(x,QUADRANT,YR_RMDL),mean(PRICE))
+  RMY_PR_QA <- RMY_PR_QA [-which(RMY_PR_QA$QUADRANT==""),]
+  names(RMY_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(RMY_PR_QA)
+}
+
+
+#EYB------
+EYB <- function(x){
+  EYB_PR<- summarize(group_by(x,EYB),mean(PRICE))
+  #UN_PR <- UN_PR[-which(UN_PR$NUM_UNITS==""),]
+  names(EYB_PR)[2] <- "Avg.Price"
+  as.data.frame(EYB_PR)
+}
+
+EYB_AC <- function(x){
+  EYB_PR_AC <- summarize(group_by(x,AC,EYB),mean(PRICE))
+  EYB_PR_AC <- EYB_PR_AC[-which(EYB_PR_AC$AC=="0"),]
+  names(EYB_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(EYB_PR_AC)
+}
+
+EYB_gr <- function(x){
+  EYB_PR_gr <- summarize(group_by(x,GRADE,EYB),mean(PRICE))
+  EYB_PR_gr <- EYB_PR_gr[-which(EYB_PR_gr$GRADE==""),]
+  names(RMY_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(EYB_PR_gr)
+}
+
+EYB_HE <- function(x){
+  EYB_PR_HE <- summarize(group_by(x,HEAT,EYB),mean(PRICE))
+  #UN_PR_HE <- UN_PR_HE[-which(UN_PR_HE$AC=="0"),]
+  names(EYB_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(EYB_PR_HE)
+}
+
+EYB_CN <- function(x){
+  EYB_PR_CN <- summarize(group_by(x,CNDTN,EYB),mean(PRICE))
+  EYB_PR_CN <- EYB_PR_CN[-which(EYB_PR_CN$CNDTN==""),]
+  names(EYB_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(EYB_PR_CN)
+}
+
+EYB_QA <- function(x){
+  EYB_PR_QA <- summarize(group_by(x,QUADRANT,EYB),mean(PRICE))
+  EYB_PR_QA <- EYB_PR_QA [-which(EYB_PR_QA$QUADRANT==""),]
+  names(RMY_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(EYB_PR_QA)
+}
+
+
+# stories-----
+STO <- function(x){
+  STO_PR<- summarize(group_by(x,STORIES),mean(PRICE))
+  #UN_PR <- UN_PR[-which(UN_PR$NUM_UNITS==""),]
+  names(STO_PR)[2] <- "Avg.Price"
+  as.data.frame(STO_PR)
+}
+
+STO_AC <- function(x){
+  STO_PR_AC <- summarize(group_by(x,AC,STORIES),mean(PRICE))
+  STO_PR_AC <- STO_PR_AC[-which(STO_PR_AC$AC=="0"),]
+  names(STO_PR_AC)[3] <- "Avg.Price" 
+  as.data.frame(STO_PR_AC)
+}
+
+STO_gr <- function(x){
+  STO_PR_gr <- summarize(group_by(x,GRADE,STORIES),mean(PRICE))
+  STO_PR_gr <- STO_PR_gr[-which(STO_PR_gr$GRADE==""),]
+  names(STO_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(STO_PR_gr)
+} 
+
+STO_HE <- function(c) {
+  STO_PR_HE <- summarize(group_by(x,HEAT,STORIES),mean(PRICE))
+  #UN_PR_HE <- UN_PR_HE[-which(UN_PR_HE$AC=="0"),]
+  names(STO_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(STO_PR_HE)
+}
+
+STO_CN <- function(x){
+  STO_PR_CN <- summarize(group_by(x,CNDTN,STORIES),mean(PRICE))
+  STO_PR_CN <- STO_PR_CN[-which(STO_PR_CN$CNDTN==""),]
+  names(STO_PR_CN)[3] <- "Avg.Price" 
+  as.data.frame(STO_PR_CN)
+}
+
+STO_QA <- function(x){
+  STO_PR_QA <- summarize(group_by(x,QUADRANT,STORIES),mean(PRICE))
+  STO_PR_QA <- STO_PR_QA [-which(STO_PR_QA$QUADRANT==""),]
+  names(STO_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(STO_PR_QA)
+}
+
+
+#sale date 
+sad <- function(x){
+  sad_PR<- summarize(group_by(x,SALEDATE),mean(PRICE))
+  sad_PR <- sad_PR[-which(sad_PR$SALEDATE==""),]
+  names(sad_PR)[2] <- "Avg.Price"
+  as.data.frame(sad_PR)
+} 
+
+
+sad_AC <- function(x){
+  sad_PR_AC <- summarize(group_by(x,AC,SALEDATE),mean(PRICE))
+  sad_PR_AC <- sad_PR_AC[-which(sad_PR_AC$AC=="0" || sad_PR_AC$SALEDATE==""),]
+  names(sad_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(sad_PR_AC)
+}
+
+sad_gr <- function(x){
+  sad_PR_gr <- summarize(group_by(x,GRADE,SALEDATE),mean(PRICE))
+  sad_PR_gr <- sad_PR_gr[-which(sad_PR_gr$GRADE==""|| sad_PR_AC$SALEDATE==""),]
+  names(sad_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(sad_PR_gr)
+}
+
+sad_HE <- function(x){
+  sad_PR_HE <- summarize(group_by(x,HEAT,SALEDATE),mean(PRICE))
+  sad_PR_HE <- sad_PR_HE[-which(sad_PR_HE$SALEDATE==""),]
+  names(sad_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(sad_PR_HE)
+} 
+
+sad_CN <- function(x){
+  sad_PR_CN <- summarize(group_by(x,CNDTN,SALEDATE),mean(PRICE))
+  sad_PR_CN <- sad_PR_CN[-which(sad_PR_CN$CNDTN=="" || sad_PR_CN$SALEDATE==""),]
+  names(sad_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(sad_PR_CN)
+}
+
+sad_QA <- function(x){
+  sad_PR_QA <- summarize(group_by(x,QUADRANT,SALEDATE),mean(PRICE))
+  sad_PR_QA <- sad_PR_QA [-which(sad_PR_QA$QUADRANT=="" || sad_PR_QA$SALEDATE==""),]
+  names(sad_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(sad_PR_QA)
+} 
+
+
+#salenum
+san <- function(x){
+  san_PR<- summarize(group_by(x,SALE_NUM),mean(PRICE))
+  #sanPR <- sad_PR[-which(sanPR$SALEDATE==""),]
+  names(san_PR)[2] <- "Avg.Price"
+  as.data.frame(san_PR)
+}
+
+san_AC <- function(x){
+  san_PR_AC <- summarize(group_by(x,AC,SALE_NUM),mean(PRICE))
+  san_PR_AC <- san_PR_AC[-which(san_PR_AC$AC=="0"),]
+  names(san_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(san_PR_AC)
+}
+
+san_gr <- function(x){
+  san_PR_gr <- summarize(group_by(x,GRADE,SALE_NUM),mean(PRICE))
+  san_PR_gr <- san_PR_gr[-which(san_PR_gr$GRADE==""),]
+  names(san_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(san_PR_gr)
+} 
+
+san_HE <- function(x){
+  san_PR_HE <- summarize(group_by(x,HEAT,SALE_NUM),mean(PRICE))
+  #san_PR_HE <- san_PR_HE[-which(san_PR_HE$SALEDATE==""),]
+  names(san_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(san_PR_HE)
+}
+
+san_CN <- function(x){
+  san_PR_CN <- summarize(group_by(x,CNDTN,SALE_NUM),mean(PRICE))
+  san_PR_CN <- san_PR_CN[-which(san_PR_CN$CNDTN==""),]
+  names(san_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(san_PR_CN)
+  
+}
+
+san_QA <- function(x){
+  san_PR_QA <- summarize(group_by(x,QUADRANT,SALE_NUM),mean(PRICE))
+  san_PR_QA <- san_PR_QA [-which(san_PR_QA$QUADRANT==""),]
+  names(san_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(san_PR_QA)
+}
+
+
+#GBA
+gba <- function(x){
+  gba_PR<- summarize(group_by(x,GBA),mean(PRICE))
+  gba_PR <- gba_PR[-which(gba_PR$GBA<=100),]
+  names(gba_PR)[2] <- "Avg.Price"
+  as.data.frame(gba_PR)
+}
+
+gba_AC <- function(x){
+  gba_PR_AC <- summarize(group_by(x,AC,GBA),mean(PRICE))
+  gba_PR_AC <- gba_PR_AC[-which(gba_PR_AC$AC=="0" || gba_PR$GBA<=100),]
+  names(gba_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(gba_PR_AC)
+}
+
+gba_gr <- function(x){
+  gba_PR_gr <- summarize(group_by(x,GRADE,GBA),mean(PRICE))
+  gba_PR_gr <- gba_PR_gr[-which(gba_PR_gr$GRADE=="" || gba_PR_gr$GBA<=100),]
+  names(gba_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(gba_PR_gr)
+}
+
+gba_HE <- function(x){
+  gba_PR_HE <- summarize(group_by(x,HEAT,GBA),mean(PRICE))
+  gba_PR_HE <- gba_PR_HE[-which(gba_PR_HE$GBA<=100),]
+  names(gba_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(gba_PR_HE)
+  
+}
+
+gba_CN <- function(x){
+  gba_PR_CN <- summarize(group_by(x,CNDTN,GBA),mean(PRICE))
+  gba_PR_CN <- gba_PR_CN[-which(gba_PR_CN$CNDTN=="" || gba_PR_CN$GBA<=100),]
+  names(gba_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(gba_PR_CN)
+}
+
+gba_QA <- function(x){
+  gba_PR_QA <- summarize(group_by(x,QUADRANT,GBA),mean(PRICE))
+  gba_PR_QA <- gba_PR_QA [-which(gba_PR_QA$QUADRANT=="" || gba_PR_QA$GBA<=100),]
+  names(gba_PR_QA)[3] <- "Avg.Price" 
+  as.data.frame(gba_PR_QA)
+}
+
+
+#Stucture----
+stru <- function(x){
+  stru_PR<- summarize(group_by(x,STRUCT),mean(PRICE))
+  stru_PR <- stru_PR[-which(stru_PR$STRUCT==""),]
+  names(stru_PR)[2] <- "Avg.Price"
+  as.data.frame(stru_PR)
+}
+
+stru_AC <- function(x){
+  stru_PR_AC <- summarize(group_by(x,AC,STRUCT),mean(PRICE))
+  stru_PR_AC <- stru_PR_AC[-which(stru_PR_AC$AC=="0" || stru_PR_AC$STRUCT==""),]
+  names(stru_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(stru_PR_AC)
+}
+
+stru_gr <- function(x){
+  stru_PR_gr <- summarize(group_by(x,GRADE,STRUCT),mean(PRICE))
+  stru_PR_gr <- stru_PR_gr[-which(stru_PR_gr$GRADE==""|| stru_PR_gr$STRUCT==""),]
+  names(stru_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(stru_PR_gr)
+}
+
+stru_HE <- function(x){
+  stru_PR_HE <- summarize(group_by(x,HEAT,STRUCT),mean(PRICE))
+  stru_PR_HE <- stru_PR_HE[-which(stru_PR_HE$STRUCT==""),]
+  names(stru_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(stru_PR_HE)
+}
+
+stru_CN <- function(x){
+  stru_PR_CN <- summarize(group_by(x,CNDTN,STRUCT),mean(PRICE))
+  stru_PR_CN <- stru_PR_CN[-which(stru_PR_CN$CNDTN=="" || stru_PR_CN$STRUCT==""),]
+  names(stru_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(stru_PR_CN)
+  
+}
+
+stru_QA <- function(x){
+  stru_PR_QA <- summarize(group_by(x,QUADRANT,STRUCT),mean(PRICE))
+  stru_PR_QA <- stru_PR_QA [-which(stru_PR_QA$QUADRANT=="" || stru_PR_QA$STRUCT==""),]
+  names(stru_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(stru_PR_QA)
+  
+} 
+
+
+
+
+
+#grade----
+gr <- function(x){
+  gr_PR<- summarize(group_by(x,GRADE),mean(PRICE))
+  gr_PR <- gr_PR[-which(gr_PR$GRADE==""),]
+  names(gr_PR)[2] <- "Avg.Price"
+  as.data.frame(gr_PR)
+}
+
+gr_AC <- function(x){
+  gr_PR_AC <- summarize(group_by(x,AC,GRADE),mean(PRICE))
+  gr_PR_AC <- gr_PR_AC[-which(gr_PR_AC$AC=="0" || gr_PR_AC$GRADE==""),]
+  names(gr_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(gr_PR_AC)
+}
+
+gr_gr <- function(x){
+  as.data.frame(gr(x)) 
+}
+
+gr_HE <- function(x){
+  gr_PR_HE <- summarize(group_by(x,HEAT,GRADE),mean(PRICE))
+  gr_PR_HE <- gr_PR_HE[-which(gr_PR_HE$GRADE==""),]
+  names(gr_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(gr_PR_HE)
+}
+
+gr_CN <- function(x){
+  gr_PR_CN <- summarize(group_by(x,CNDTN,GRADE),mean(PRICE))
+  gr_PR_CN <- gr_PR_CN[-which(gr_PR_CN$CNDTN=="" || gr_PR_CN$GRADE==""),]
+  names(gr_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(gr_PR_CN)
+}
+
+gr_QA <- function(x){
+  gr_PR_QA <- summarize(group_by(x,QUADRANT,GRADE),mean(PRICE))
+  gr_PR_QA <- gr_PR_QA [-which(gr_PR_QA$QUADRANT=="" || gr_PR_QA$GRADE==""),]
+  names(gr_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(gr_PR_QA)
+}
+
+
+#Cndt-----
+cnd <- function(x){
+  cnd_PR<- summarize(group_by(x,CNDTN),mean(PRICE))
+  cnd_PR <- cnd_PR[-which(cnd_PR$CNDTN==""),]
+  names(cnd_PR)[2] <- "Avg.Price"
+  as.data.frame(cnd_PR)
+}
+
+cnd_AC <- function(x){
+  cnd_PR_AC <- summarize(group_by(x,AC,CNDTN),mean(PRICE))
+  cnd_PR_AC <- cnd_PR_AC[-which(cnd_PR_AC$AC=="0" || cnd_PR_AC$CNDTN==""),]
+  names(cnd_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(cnd_PR_AC)
+}
+
+cnd_gr <- function(x){
+  cnd_PR_gr <- summarize(group_by(x,GRADE,CNDTN),mean(PRICE))
+  cnd_PR_gr <- cnd_PR_gr[-which(cnd_PR_gr$GRADE=="0" || cnd_PR_gr$CNDTN==""),]
+  names(cnd_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(cnd_PR_gr)
+}
+
+cnd_HE <- function(x){
+  cnd_PR_HE <- summarize(group_by(x,HEAT,CNDTN),mean(PRICE))
+  cnd_PR_HE <- cnd_PR_HE[-which(cnd_PR_HE$CNDTN==""),]
+  names(cnd_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(cnd_PR_HE)
+}
+
+cnd_CN <- function(x){
+  as.data.frame(cnd(x))
+}
+
+cnd_QA <- function(x){
+  cnd_PR_QA <- summarize(group_by(x,QUADRANT,CNDTN),mean(PRICE))
+  cnd_PR_QA <- cnd_PR_QA [-which(cnd_PR_QA$QUADRANT=="" || cnd_PR_QA$CNDTN==""),]
+  names(cnd_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(cnd_PR_QA)
+}
+
+
+#kitchen----
+kit <- function(x){
+  kit_PR<- summarize(group_by(x,KITCHENS),mean(PRICE))
+  #kit_PR <- kit_PR[-which(kit_PR),]
+  names(kit_PR)[2] <- "Avg.Price"
+  as.data.frame(kit_PR)
+}
+
+kit_AC <- function(x){
+  kit_PR_AC <- summarize(group_by(x,AC,KITCHENS),mean(PRICE))
+  kit_PR_AC <- kit_PR_AC[-which(kit_PR_AC$AC=="0"),]
+  names(kit_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(kit_PR_AC)
+}
+
+kit_gr <- function(x){
+  kit_PR_gr <- summarize(group_by(x,GRADE,KITCHENS),mean(PRICE))
+  kit_PR_gr <- kit_PR_gr[-which(kit_PR_gr$GRADE==""),]
+  names(kit_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(kit_PR_gr)
+}
+
+kit_HE <- function(x){
+  kit_PR_HE <- summarize(group_by(x,HEAT,KITCHENS),mean(PRICE))
+  #kit_PR_HE <- kit_PR_HE[-which(kit_PR_HE$KITCHENS<=100),]
+  names(kit_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(kit_PR_HE)
+}
+
+kit_CN <- function(x){
+  kit_PR_CN <- summarize(group_by(x,CNDTN,KITCHENS),mean(PRICE))
+  kit_PR_CN <- kit_PR_CN[-which(kit_PR_CN$CNDTN==""),]
+  names(kit_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(kit_PR_CN)
+}
+
+kit_QA <- function(x){
+  kit_PR_QA <- summarize(group_by(x,QUADRANT,KITCHENS),mean(PRICE))
+  kit_PR_QA <- kit_PR_QA [-which(kit_PR_QA$QUADRANT==""),]
+  names(kit_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(kit_PR_QA)
+}
+
+
+#fireplace----
+fir <- function(x){
+  fir_PR<- summarize(group_by(x,FIREPLACES),mean(PRICE))
+  #kit_PR <- kit_PR[-which(kit_PR),]
+  names(fir_PR)[2] <- "Avg.Price"
+  as.data.frame(fir_PR)
+}
+
+fir_AC <- function(x){
+  fir_PR_AC <- summarize(group_by(x,AC,FIREPLACES),mean(PRICE))
+  fir_PR_AC <- fir_PR_AC[-which(fir_PR_AC$AC=="0"),]
+  names(fir_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(fir_PR_AC)
+}
+
+fir_gr <- function(x){
+  fir_PR_gr <- summarize(group_by(x,GRADE,FIREPLACES),mean(PRICE))
+  fir_PR_gr <- fir_PR_gr[-which(fir_PR_gr$GRADE==""),]
+  names(fir_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(fir_PR_gr)
+  
+}
+
+fir_HE <- function(x){
+  fir_PR_HE <- summarize(group_by(x,HEAT,FIREPLACES),mean(PRICE))
+  #kit_PR_HE <- kit_PR_HE[-which(kit_PR_HE$KITCHENS<=100),]
+  names(fir_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(fir_PR_HE)
+}
+
+fir_CN <- function(x){
+  fir_PR_CN <- summarize(group_by(x,CNDTN,FIREPLACES),mean(PRICE))
+  fir_PR_CN <- fir_PR_CN[-which(fir_PR_CN$CNDTN==""),]
+  names(fir_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(fir_PR_CN)
+}
+
+fir_QA <- function(x){
+  fir_PR_QA <- summarize(group_by(x,QUADRANT,FIREPLACES),mean(PRICE))
+  fir_PR_QA <- fir_PR_QA [-which(fir_PR_QA$QUADRANT==""),]
+  names(fir_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(fir_PR_QA)
+}
+
+
+#landarea----
+laa <- function(x){
+  laa_PR<- summarize(group_by(x,LANDAREA),mean(PRICE))
+  laa_PR <- laa_PR[-which(laa_PR$LANDAREA<=100),]
+  names(laa_PR)[2] <- "Avg.Price"
+  as.data.frame(laa_PR)
+}
+
+laa_AC <- function(x){
+  laa_PR_AC <- summarize(group_by(x,AC,LANDAREA),mean(PRICE))
+  laa_PR_AC <- laa_PR_AC[-which(laa_PR_AC$AC=="0" || laa_PR_AC$LANDAREA<=100),]
+  names(laa_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(laa_PR_AC)
+}
+
+laa_gr <- function(x){
+  laa_PR_gr <- summarize(group_by(x,GRADE,LANDAREA),mean(PRICE))
+  laa_PR_gr <- laa_PR_gr[-which(laa_PR_gr$GRADE=="" || laa_PR_gr$LANDAREA<=100),]
+  names(laa_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(laa_PR_gr)
+}
+
+laa_HE <- function(x){
+  laa_PR_HE <- summarize(group_by(x,HEAT,LANDAREA),mean(PRICE))
+  laa_PR_HE <- laa_PR_HE[-which(laa_PR_HE$LANDAREA<=100),]
+  names(laa_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(laa_PR_HE)
+}
+
+laa_CN <- function(x){
+  laa_PR_CN <- summarize(group_by(x,CNDTN,LANDAREA),mean(PRICE))
+  laa_PR_CN <- laa_PR_CN[-which(laa_PR_CN$CNDTN=="" || laa_PR_CN$LANDAREA<=100),]
+  names(laa_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(laa_PR_CN)
+}
+
+laa_QA <- function(x){
+  laa_PR_QA <- summarize(group_by(x,QUADRANT,LANDAREA),mean(PRICE))
+  laa_PR_QA <- laa_PR_QA [-which(laa_PR_QA$QUADRANT=="" || laa_PR_QA$LANDAREA<=100),]
+  names(laa_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(laa_PR_QA)
+}
+
+#zipcode----
+zip <- function(x){
+  zip_PR<- summarize(group_by(x,ZIPCODE),mean(PRICE))
+  #kit_PR <- kit_PR[-which(kit_PR),]
+  names(zip_PR)[2] <- "Avg.Price"
+  as.data.frame(zip_PR)
+}
+
+zip_AC <- function(x){
+  zip_PR_AC <- summarize(group_by(x,AC,ZIPCODE),mean(PRICE))
+  zip_PR_AC <- zip_PR_AC[-which(zip_PR_AC$AC=="0"),]
+  names(zip_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(zip_PR_AC)
+}
+
+zip_gr <- function(x){
+  zip_PR_gr <- summarize(group_by(x,GRADE,ZIPCODE),mean(PRICE))
+  zip_PR_gr <- zip_PR_gr[-which(zip_PR_gr$GRADE==""),]
+  names(zip_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(zip_PR_gr)
+}
+
+zip_HE <- function(x){
+  zip_PR_HE <- summarize(group_by(x,HEAT,ZIPCODE),mean(PRICE))
+  #kit_PR_HE <- kit_PR_HE[-which(kit_PR_HE$KITCHENS<=100),]
+  names(zip_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(zip_PR_HE)
+}
+
+zip_CN <- function(x){
+  zip_PR_CN <- summarize(group_by(x,CNDTN,ZIPCODE),mean(PRICE))
+  zip_PR_CN <- zip_PR_CN[-which(zip_PR_CN$CNDTN==""),]
+  names(zip_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(zip_PR_CN)
+}
+
+zip_QA <- function(x){
+  zip_PR_QA <- summarize(group_by(x,QUADRANT,ZIPCODE),mean(PRICE))
+  zip_PR_QA <- zip_PR_QA [-which(zip_PR_QA$QUADRANT==""),]
+  names(zip_PR_QA)[3] <- "Avg.Price"
+  as.data.frame(zip_PR_QA)
+}
+
+
+#quadrant----
+qu <- function(x){
+  qu_PR<- summarize(group_by(x,QUADRANT),mean(PRICE))
+  qu_PR <- qu_PR[-which(qu_PR$QUADRANT==""),]
+  names(qu_PR)[2] <- "Avg.Price"
+  as.data.frame(qu_PR)
+}
+
+qu_AC <- function(x){
+  qu_PR_AC <- summarize(group_by(x,AC,QUADRANT),mean(PRICE))
+  qu_PR_AC <- qu_PR_AC[-which(qu_PR_AC$AC=="0" || qu_PR_AC$QUADRANT==""),]
+  names(qu_PR_AC)[3] <- "Avg.Price"
+  as.data.frame(qu_PR_AC)
+}
+
+qu_gr <- function(x){
+  qu_PR_gr <- summarize(group_by(x,GRADE,QUADRANT),mean(PRICE))
+  qu_PR_gr <- qu_PR_gr[-which(qu_PR_gr$GRADE=="" || qu_PR_gr$QUADRANT==""),]
+  names(qu_PR_gr)[3] <- "Avg.Price"
+  as.data.frame(qu_PR_gr)
+}
+
+qu_HE <- function(x){
+  qu_PR_HE <- summarize(group_by(x,HEAT,QUADRANT),mean(PRICE))
+  qu_PR_HE <- qu_PR_HE[-which(qu_PR_HE$QUADRANT==""),]
+  names(qu_PR_HE)[3] <- "Avg.Price"
+  as.data.frame(qu_PR_HE)
+}
+
+qu_CN <- function(x){
+  qu_PR_CN <- summarize(group_by(x,CNDTN,QUADRANT),mean(PRICE))
+  qu_PR_CN <- qu_PR_CN [-which(qu_PR_CN$CNDTN=="" || qu_PR_CN$QUADRANT==""),]
+  names(qu_PR_CN)[3] <- "Avg.Price"
+  as.data.frame(qu_PR_CN)
+}
+
+
+qu_QA <- function(x){
+  as.data.frame(qu(x))
+}
+
+
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+#install.packages("shinydashboard")
+#install.packages("shiny")
+#install.packages("shinyjs")
+library(shinyjs)
+#library(shiny)
+require(shiny)
+useShinyjs()
+#install.packages("shinythemes")
+library(shinythemes)
+library(shinyWidgets)
+hidden(span(id = "a"), div(id = "b"))
+hidden(tagList(span(id = "a"), div(id = "b")))
+hidden(list(span(id = "a"), div(id = "b")))
+
+ui <- fluidPage(theme=shinytheme("superhero"),
+                #includeCSS("style.css"),
+                navbarPage(h4("D.C. Residential Properties"),
+                           
+                           tabPanel(h4("Visualization"),
+                                    
+                                    sidebarLayout(
+                                      # Sidebar panel for inputs ----
+                                      sidebarPanel(width=3,
+                                                   #Input filters
+                                                   wellPanel( 
+                                                     selectInput("Properties",
+                                                                 h5("Properties"),
+                                                                 PropertiesType),
+                                                
+                                                     selectInput("yvar",
+                                                                 "Choose y var",
+                                                          c("Avg.Price","Price",
+                                                            "Avg.Sale number",
+                                                            "sale number")),
+                                                     pickerInput(
+                                                       "Local",
+                                                       h5("Choose the Locality (Zipcode)"),
+                                                       choices = type,
+                                                       selected = c("20001","20002","20003"),
+                                                       options = list(`actions-box` = TRUE),
+                                                       multiple = T
+                                                     ),
+                                                     awesomeCheckbox("color",
+                                                                     h5("Check to visualize 
+                                                                        details into color"),
+                                                                     value =FALSE
+                                                     ),
+                                                     conditionalPanel(
+                                                       condition="input.color==true",
+                                                       selectInput("adddetails_color",
+                                                                   "Choose details to visualize 
+                                                                   by color",
+                                                                   choices = vi_details_color,
+                                                                   selected = "AC"
+                                                                   #selected = names(DC_Properties)[4]
+                                                       )),
+
+                                                     # awesomeCheckbox("size",
+                                                     #                 h5("Check to visualize details into size"),
+                                                     #                 value = FALSE
+                                                     # ),
+                                                     # 
+                                                     # conditionalPanel(
+                                                     #   condition="input.size==true",
+                                                     #   selectInput("adddetails_size",
+                                                     #               "Choose details to visualize by size",
+                                                     #               choices = vi_details_size
+                                                     #               #selected = names(DC_Properties)[2]
+                                                     #   )),
+                                                     # 
+                                                     actionButton("exclude_toggle", "Toggle points"),
+                                                     actionButton("exclude_reset", "Reset")
+                                                     
+                                                                 
+                                                     ) ),
+                                      # Main panel for displaying outputs ----
+                                      mainPanel(
+                                        tabsetPanel(
+                                          id='plotset',
+                                          tabPanel("MAP",
+                                                   fluidRow(
+                                                     
+                                                     column(12,
+                                                            leafletOutput(outputId="map",height = 600)
+                                                            
+                                                     )
+                                                     )),
+                                          tabPanel("Plots",
+                                                   # Output ----
+                                                   #plotOutput(outputId="price_BATHRM")
+                                                   
+                                                   
+                                                   
+                                                   fluidRow(
+                                                     column(10,
+                                                            
+                                                           
+                                                            plotOutput(outputId="price_Prope",
+                                                                       height = 500
+                                                                       # click = "p2cc",
+                                                                       # brush = brushOpts(id="p2b")
+                                                                       )
+                                                            ),
+                                                     
+                                                     
+                                                     column(2,
+                                                            span(textOutput("Meanless"),
+                                                                 style="color:white"),
+                                                            hidden(
+                                                              p(id="Meanless", "Note: The illogical 
+                                                                plot type will show blank layer!")
+                                                            ),
+                                                            tags$head(tags$style("#Meanless{color: 
+                                white;
+                                                                                 font-size: 20px;
+                                                                                 font-style: italic;
+                                                                                 }")),
+                                                            # sliderInput("price",
+                                                            #             "Choose the price range",
+                                                            #             min = min(dc_price),max = max(dc_price),
+                                                            #             value =c(min,max)),
+                                                     
+                                                            wellPanel(uiOutput("Plotty"))
+                                                            # plotOutput(outputId="sale_prope",
+                                                            #            click = "p3cc",
+                                                            #            brush = brushOpts(id="p3b"))
+                                                     )),
+                                                   fluidRow(
+                                                     column(10,
+                                                            plotOutput(outputId="price_sale",
+                                                                       click = "p4cc",
+                                                                       brush = brushOpts(id="p4b"),
+                                                                       height = 500))
+                                                   )
+                                                     
+                                                            
+
+                                                     
+                                                   ))
+                                        #----------------
+                                          # tabPanel("Filters",
+                                          #          fluidRow(
+                                          #            column(4,
+                                          #                   wellPanel(
+                                          #                     #plot_ts <- ,
+                                          #                     uiOutput("Plotty1"),
+                                          #                     uiOutput("Bathroom"),
+                                          #                     uiOutput("half-Bathroom"),
+                                          #                     uiOutput("units"),
+                                          #                     uiOutput("rooms"),
+                                          #                     uiOutput("bedrm"),
+                                          #                     uiOutput("stories"),
+                                          #                     uiOutput("sale"))
+                                          #                   
+                                          #            ),
+                                          #            column(4,
+                                          #                   wellPanel(
+                                          #                     uiOutput("kitchen"),
+                                          #                     uiOutput("fireplace"),
+                                          #                     uiOutput("heat"),
+                                          #                     uiOutput("ac"),
+                                          #                     uiOutput("structure"),
+                                          #                     uiOutput("grade"),
+                                          #                     uiOutput("cnd"),
+                                          #                     uiOutput("qua")
+                                          #                   )
+                                          #            ),
+                                          #            column(4,
+                                          #                   uiOutput("ayb"),
+                                          #                   uiOutput("mdy"),
+                                          #                   uiOutput("eyb"),
+                                          #                   uiOutput("saledate"),
+                                          #                   uiOutput("price"),
+                                          #                   uiOutput("gba"),
+                                          #                   uiOutput("land")
+                                          #                   # awesomeCheckbox(
+                                          #                   #   "back to default",
+                                          #                   #   "Default",
+                                          #                   #   value = TRUE
+                                          #                   # )
+                                          #            )
+                                          #          ))
+                                          
+                                        )
+                                      )
+                                    )
+                           
+                )
+)
+
+
+
+```
+
+```{r cache=FALSE, warning=FALSE,results='hide',message=FALSE}
+shinyServer<-function(input, output,session){
+  
+  #property trigger plottype----
+  output$Plotty <- renderUI({
+    
+    Properties_s <- input$Properties
+    if(is.null(Properties_s))
+      return()
+    #for average 
+    
+    CNplot <- switch (Properties_s,
+                      "Number of Bathroom"="Bar", 
+                      "Number of Half-Bathroom"="Line",
+                      "Heating System"="Bar",
+                      "Air Conditioning"="Bar",
+                      "Number of Units"="Bar",
+                      "Nunber of Rooms"="Bar",
+                      "Number of Bedrooms"="Bar",
+                      "The year main portion of the building was built"="Area",
+                      "Year structure was remodeled"="Area",
+                      "Most recent improvement year"="Area",
+                      "Number of stories"="Line",
+                      "Sale date"="Bar",
+                      "Price"="Bar",
+                      "Sale number"="Bar",
+                      "Gross building area"="Line",
+                      "Structure"="Bar",
+                      "Grade"="Bar","Condition"="Bar",
+                      "Number of kitchen"="Bar",
+                      "Number of fireplace"="Bar",
+                      "Land area"="Line",
+                      "Zipcode"="Bar",
+                      "Quadrant"="Bar"
+                      
+    )
+    # for price
+    CNplotP <- switch (Properties_s,
+                      "Number of Bathroom"="Point", 
+                      "Number of Half-Bathroom"="Point",
+                      "Heating System"="Boxplot",
+                      "Air Conditioning"="Boxplot",
+                      "Number of Units"="Point",
+                      "Nunber of Rooms"="Point",
+                      "Number of Bedrooms"="Point",
+                      "The year main portion of the building was built"="Boxplot",
+                      "Year structure was remodeled"="Point",
+                      "Most recent improvement year"="Point",
+                      "Number of stories"="Point",
+                      "Sale date"="Point",
+                      "Price"="Point",
+                      "Sale number"="Point",
+                      "Gross building area"="Point",
+                      "Structure"="Boxplot",
+                      "Grade"="Boxplot","Condition"="Boxplot",
+                      "Number of kitchen"="Point",
+                      "Number of fireplace"="Point",
+                      "Land area"="Point",
+                      "Zipcode"="Point",
+                      "Quadrant"="Point"
+    )
+    #Function: set default plottype for each combination----
+    pltype <- function(){
+      if(input$yvar=="Avg.Price"){
+        return(CNplot)
+      }
+      else if(input$yvar=="Price"){
+        if(input$color==FALSE){
+          return(CNplotP)
+        }
+        else if(input$color==TRUE){
+          return("Point")
+        }
+         
+      }
+    }
+    
+    selectInput("plottype2","Plot Type",
+                plot_ts,
+                selected = pltype())
+  })
+
+  # #dynamic UI: different plot type <->different default filter setting----
+  # #numeric variables default setting----
+  # outp_numVar <- function(x){
+  #   plottype_s <- input$plottype2
+  #   if(is.null(plottype_s))
+  #     return()
+  #   switch (plottype_s,
+  #           "Bar" = x,
+  #           "Boxplot"=x,
+  #           "Line"=x,
+  #           "Point"=x,
+  #           "Area"=x
+  #           
+  #   )
+  # }
+  # output$Bathroom <- renderUI({
+  #   bathchoices <- c(0:14)
+  #   pickerInput(
+  #     "bathroom",
+  #     h5("Choose the number of bathroom"),
+  #     choices = bathchoices,
+  #     selected = outp_numVar(bathchoices),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$`half-Bathroom` <- renderUI({
+  #   halfChoices <- c(0:11)
+  #   pickerInput(
+  #     "hf_bathroom",
+  #     "Choose the number of half-bathroom",
+  #     choices = halfChoices,
+  #     selected = outp_numVar(halfChoices),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$units <- renderUI({
+  #   unitsChoice <- c(0:6)
+  #   pickerInput(
+  #     "Num_Units",
+  #     "Choose the number of units",
+  #     choices = unitsChoice,
+  #     selected = outp_numVar(unitsChoice),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$bedrm <- renderUI({
+  #   bedrmChoices <- c(0:24)
+  #   pickerInput(
+  #     "Num_bedRM",
+  #     "Chose the number of bedroom",
+  #     choices = bedrmChoices,
+  #     selected = outp_numVar(bedrmChoices),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$stories <- renderUI({
+  #   storiesChoice <- Num_stories_meanP$STORIES
+  #   pickerInput(
+  #     "Num_stories",
+  #     "Chose the number of stories",
+  #     choices = storiesChoice,
+  #     selected = outp_numVar(storiesChoice),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$rooms <- renderUI({
+  #   roomsChoices <- Num_Rooms_meanP$ROOMS
+  #   pickerInput(
+  #     "Num_room",
+  #     "Chose the number of rooms",
+  #     choices = roomsChoices,
+  #     selected = outp_numVar(roomsChoices),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$kitchen <- renderUI({
+  #   kitchenChoice <- Kitchen_meanp$KITCHENS
+  #   pickerInput(
+  #     "Num_kitchen",
+  #     "Chose the number of kitchens",
+  #     choices = kitchenChoice,
+  #     selected = outp_numVar(kitchenChoice),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$fireplace <- renderUI({
+  #   firechoice <- Fireplace_meanP$FIREPLACES
+  #   pickerInput(
+  #     "Num_fireplace",
+  #     "Chose the number of fireplaces",
+  #     choices = firechoice,
+  #     selected = outp_numVar(firechoice),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$sale <- renderUI({
+  #   salechoices <- Salenum_meanP$SALE_NUM
+  #   pickerInput(
+  #     "Sale_num",
+  #     "Chose the sale number",
+  #     choices = salechoices,
+  #     selected = outp_numVar(salechoices),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # 
+  # #non-numeric default settings----
+  # outp_nnnumVar <- function(x){
+  #   plottype_s <- input$plottype2
+  #   if(is.null(plottype_s))
+  #     return()
+  #   switch (plottype_s,
+  #           "Bar" = x,
+  #           "Boxplot"=x,
+  #           "Line"=x,
+  #           "Point"=x,
+  #           "Area"=x
+  #   )
+  # }
+  # 
+  # output$heat <- renderUI({
+  #   pickerInput(
+  #     "heat",
+  #     "Chose the heating system",
+  #     choices = heat_meanP1,
+  #     selected = outp_nnnumVar(heat_meanP1),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$ac <- renderUI({
+  #   pickerInput(
+  #     "AC",
+  #     "Chose the air conditioning",
+  #     choices = AC_meanP1,
+  #     selected = outp_nnnumVar(AC_meanP1),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$structure <- renderUI({
+  #   pickerInput(
+  #     "Stucture",
+  #     "Chose the structure",
+  #     choices = struct_meanP1,
+  #     selected = outp_nnnumVar(struct_meanP1),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$grade <- renderUI({
+  #   pickerInput(
+  #     "grade",
+  #     "Chose the grade",
+  #     choices = Grade_meanP1,
+  #     selected = outp_nnnumVar(Grade_meanP1),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$cnd <- renderUI({
+  #   pickerInput(
+  #     "condition",
+  #     "Chose the condition",
+  #     choices = Condition_meanP1,
+  #     selected = outp_nnnumVar(Condition_meanP1),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # output$qua <- renderUI({
+  #   pickerInput(
+  #     "Quadrant",
+  #     "Chose the quadrant",
+  #     choices = Quadrant_meanP1,
+  #     selected = outp_nnnumVar(Quadrant_meanP1),
+  #     options = list(`actions-box` = TRUE),multiple = T
+  #   )
+  # })
+  # 
+  # #year default settings based on plot type
+  # outp_yearVar <- function(x){
+  #   plottype_s <- input$plottype2
+  #   if(is.null(plottype_s))
+  #     return()
+  #   switch (plottype_s,
+  #           "Bar" = x,
+  #           "Boxplot"=x,
+  #           "Line"=x,
+  #           "Point"=x,
+  #           "Area"=x
+  #   )
+  # }
+  # output$ayb <- renderUI({
+  #   min1 <- min(AYB_meanP$AYB)
+  #   max1 <- max(AYB_meanP$AYB)
+  #   val <- c(min1,max1)
+  #   sliderInput("AYB",
+  #               "Choose the year the building was built ",
+  #               min = min(AYB_meanP$AYB),max =max(AYB_meanP$AYB) ,
+  #               value = outp_yearVar(val))
+  # })
+  # output$mdy <- renderUI({
+  #   min1 <- min(YR_RMDL_meanP$YR_RMDL)
+  #   max1 <- max(YR_RMDL_meanP$YR_RMDL)
+  #   val <- c(min1,max1)
+  #   sliderInput("YR_RMDL_meanP",
+  #               "Choose the year structure was remodeled",
+  #               min = min(YR_RMDL_meanP$YR_RMDL),max = max(YR_RMDL_meanP$YR_RMDL),
+  #               value = outp_yearVar(val))
+  # })
+  # output$eyb <- renderUI({
+  #   min1 <- min(EYB_meanP$EYB)
+  #   max1 <- max(EYB_meanP$EYB)
+  #   val <- c(min1,max1)
+  #   sliderInput("EBY",
+  #               "Choose the year the most recent improvement was built",
+  #               min = min(EYB_meanP$EYB),max = max(EYB_meanP$EYB),
+  #               value = outp_yearVar(val))
+  # })
+  # 
+  # #area default settings
+  # outp_areaVar <- function(x){
+  #   plottype_s <- input$plottype2
+  #   if(is.null(plottype_s))
+  #     return()
+  #   switch (plottype_s,
+  #           "Bar" = x,
+  #           "Boxplot"=x,
+  #           "Line"=x,
+  #           "Point"=x,
+  #           "Area"=x
+  #   )
+  # }
+  # output$gba <- renderUI({
+  #   min1 <- min(GBA_meanP$GBA)
+  #   max1 <- max(GBA_meanP$GBA)
+  #   val <- c(min1,max1)
+  #   sliderInput("GBA",
+  #               "Choose gross building area in square feet",
+  #               min = min(GBA_meanP$GBA),max = max(GBA_meanP$GBA),
+  #               value = outp_areaVar(val))
+  # })
+  # output$land <- renderUI({
+  #   min1 <- min(LandArea_meanP$LANDAREA)
+  #   max1 <- max(LandArea_meanP$LANDAREA)
+  #   val <- c(min1,max1)
+  #   sliderInput("LANDAREA",
+  #               "Choose land area of property in square feet",
+  #               min = min(LandArea_meanP$LANDAREA),max = max(LandArea_meanP$LANDAREA),
+  #               value = outp_areaVar(val))
+  # })
+  # 
+  # #price filter default settings
+  # outp_priceVar <- function(x){
+  #   plottype_s <- input$plottype2
+  #   if(is.null(plottype_s))
+  #     return()
+  #   switch (plottype_s,
+  #           "Bar" = x,
+  #           "Boxplot"=x,
+  #           "Line"=x,
+  #           "Point"=x,
+  #           "Area"=x
+  #   )
+  # }
+  # output$price <- renderUI({
+  #   min1 <- min(dc_price)
+  #   max1 <- max(dc_price)
+  #   val <- c(min1,max1)
+  #   sliderInput("price",
+  #               "Choose the price range",
+  #               min = min(dc_price),max = max(dc_price),
+  #               value = outp_priceVar(val)
+  #   )
+  # })
+  # 
+  # #date default settings 
+  # output$saledate <- renderUI({
+  #   plottype_s <- input$plottype2
+  #   if(is.null(plottype_s))
+  #     return()
+  #   switch (plottype_s,
+  #           "Bar" = {
+  #             min1="1947-05-14"
+  #             max1="2018-07-12"
+  #           },
+  #           "Boxplot"={
+  #             min1="1947-05-14"
+  #             max1="2018-07-12"
+  #           },
+  #           "Line"={
+  #             min1="1947-05-14"
+  #             max1="2018-07-12"
+  #           },
+  #           "Point"={
+  #             min1="1947-05-14"
+  #             max1="2018-07-12"
+  #           },
+  #           "Area"={
+  #             min1="1947-05-14"
+  #             max1="2018-07-12"
+  #           }
+  #   )
+  #   dateRangeInput("saledate",
+  #                  "Choose the sale date range",
+  #                  start = "1947-05-14",end = "2018-07-12",
+  #                  min = min1, max = max1)
+  # })
+  # 
+  
+  #plot output----
+  ## colour palette for the map----
+  getColor <- function(mapdata) {
+    sapply(mapdata$PRICE, function(PRICE) {
+      if(PRICE <= 1000000) {
+        "green"
+      } else if(PRICE >= 1000000 && PRICE <= 1500000) {
+        "orange"
+      } else if(PRICE >= 1500000 && PRICE <= 2500000){
+        "red"
+      } else{
+        "blue"   }})
+  }
+
+  icons <- awesomeIcons(
+    icon = 'ios-close',
+
+    iconColor = 'black',
+    library = 'ion',
+    markerColor = getColor(mapdata)
+  )
+
+  ##  reactive map output----
+  output$map <- renderLeaflet({
+    if(is.null(input$Local)==TRUE)
+      return()
+
+    leaflet(dplyr::filter(mapdata, ZIPCODE == input$Local)) %>%
+      addTiles() %>% addAwesomeMarkers(icon = icons, 
+                                       popup = paste("Select Location", mapdata$FULLADDRESS, 
+                                                     "<br>","Price",
+                                                     mapdata$PRICE, 
+                                                     "<br>", "Land Area",
+                                                     mapdata$LANDAREA,
+                                                     "<br>", "No. of Rooms",
+                                                     mapdata$ROOMS, 
+                                                     "<br>", "No. of Bedroom",
+                                                     mapdata$BEDRM, 
+                                                     "<br>", "NO. Of Baths",
+                                                    mapdata$BATHRM),
+                                       clusterOptions = markerClusterOptions())
+
+
+  })
+  
+  #Functions: setting avg.price as fill if user don't choose "Add details into color"----
+  prop <- function(x){
+    switch(input$Properties,
+           "Number of Bathroom"={ggplot(BR(x),
+                                        mapping = aes(BATHRM,Avg.Price,fill=Avg.Price))}, 
+           "Number of Half-Bathroom"={ggplot(HFBR(x),
+                                             mapping = aes(HF_BATHRM,Avg.Price,fill=Avg.Price))},
+           "Heating System"={ggplot(HE(x),
+                                    mapping = aes(HEAT,Avg.Price,fill=Avg.Price))},
+           "Air Conditioning"={ggplot(AC(x),
+                                      mapping = aes(AC,Avg.Price,fill=Avg.Price))},
+           "Number of Units"={ggplot(UN(x),
+                                     mapping = aes(NUM_UNITS,Avg.Price,fill=Avg.Price))},
+           "Nunber of Rooms"={ggplot(RM(x),
+                                     mapping = aes(ROOMS,Avg.Price,fill=Avg.Price))},
+           "Number of Bedrooms"={ggplot(BRM(x),
+                                        mapping = aes(BEDRM,Avg.Price,fill=Avg.Price))},
+           "The year main portion of the building was built"={
+             ggplot(AYB(x),mapping = aes(AYB,Avg.Price,fill=Avg.Price))},
+           "Year structure was remodeled"={ggplot(RMY(x),
+                                                  mapping = aes(YR_RMDL,Avg.Price,fill=Avg.Price))},
+           "Most recent improvement year"={ggplot(EYB(x),
+                                                  mapping = aes(EYB,Avg.Price,fill=Avg.Price))},
+           "Number of stories"={ggplot(STO(x),
+                                       mapping = aes(STORIES,Avg.Price,fill=Avg.Price))},
+           "Sale date"={ggplot(sad(x),
+                               mapping = aes(SALEDATE,Avg.Price,fill=Avg.Price))},
+           
+           "Sale number"={ggplot(san(x),
+                                 mapping = aes(SALE_NUM,Avg.Price,fill=Avg.Price))},
+           "Gross building area"={ggplot(gba(x),
+                                         mapping = aes(GBA,Avg.Price,fill=Avg.Price))},
+           "Structure"={ggplot(stru(x),
+                               mapping = aes(STRUCT,Avg.Price,fill=Avg.Price))},
+           "Grade"={ggplot(gr(x),
+                           mapping = aes(GRADE,Avg.Price,fill=Avg.Price))},
+           "Condition"={ggplot(cnd(x),
+                               mapping = aes(CNDTN,Avg.Price,fill=Avg.Price))},
+           "Number of kitchen"={ggplot(kit(x),
+                                       mapping = aes(KITCHENS,Avg.Price,fill=Avg.Price))},
+           "Number of fireplace"={ggplot(fir(x),
+                                         mapping = aes(FIREPLACES,Avg.Price,fill=Avg.Price))},
+           "Land area"={ggplot(laa(x),
+                               mapping = aes(LANDAREA,Avg.Price,fill=Avg.Price))},
+           "Zipcode"={ggplot(zip(x),
+                             mapping = aes(ZIPCODE,Avg.Price,fill=Avg.Price))},
+           "Quadrant"={ggplot(qu(x),
+                              mapping = aes(QUADRANT,Avg.Price,fill=Avg.Price))})
+  }
+  #Function: add AC as details by color----
+  prop_AC <- function(x){
+    switch (input$Properties,
+            "Number of Bathroom"={
+              ggplot(BR_AC(x),
+                     mapping = aes(BATHRM,Avg.Price,fill=AC,colour=AC,group=AC,shape=AC))}, 
+            "Number of Half-Bathroom"={
+              ggplot(HFBR_AC(x),
+                     mapping = aes(HF_BATHRM,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Heating System"={
+              ggplot(HE_AC(x),
+                     mapping = aes(HEAT,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Air Conditioning"={
+              ggplot(AC_AC(x),
+                     mapping = aes(AC,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Number of Units"={
+              ggplot(UN_AC(x),
+                     mapping = aes(NUM_UNITS,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Nunber of Rooms"={
+              ggplot(RM_AC(x),
+                     mapping = aes(ROOMS,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Number of Bedrooms"=
+              {ggplot(BRM_AC(x),
+                      mapping = aes(BEDRM,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "The year main portion of the building was built"=
+              {ggplot(AYB_AC(x),
+                      mapping = aes(AYB,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Year structure was remodeled"=
+              {ggplot(RMY_AC(x),
+                      mapping = aes(YR_RMDL,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Most recent improvement year"=
+              {ggplot(EYB_AC(x),
+                      mapping = aes(EYB,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Number of stories"=
+              {ggplot(STO_AC(x),
+                      mapping = aes(STORIES,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Sale date"=
+              {ggplot(sad_AC(x),
+                      mapping = aes(SALEDATE,Avg.Price,fill=AC,colour=AC,group=AC))},
+            
+            "Sale number"=
+              {ggplot(san_AC(x),
+                      mapping = aes(SALE_NUM,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Gross building area"=
+              {ggplot(gba_AC(x),
+                      mapping = aes(GBA,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Structure"=
+              {ggplot(stru_AC(x),
+                      mapping = aes(STRUCT,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Grade"=
+              {ggplot(gr_AC(x),
+                      mapping = aes(GRADE,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Condition"=
+              {ggplot(cnd_AC(x),
+                      mapping = aes(CNDTN,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Number of kitchen"=
+              {ggplot(kit_AC(x),
+                      mapping = aes(KITCHENS,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Number of fireplace"=
+              {ggplot(fir_AC(x),
+                      mapping = aes(FIREPLACES,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Land area"=
+              {ggplot(laa_AC(x),
+                      mapping = aes(LANDAREA,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Zipcode"=
+              {ggplot(zip_AC(x),
+                      mapping = aes(ZIPCODE,Avg.Price,fill=AC,colour=AC,group=AC))},
+            "Quadrant"=
+              {ggplot(qu_AC(x),
+                      mapping = aes(QUADRANT,Avg.Price,fill=AC,colour=AC,group=AC))})
+    
+  }
+  
+  #Function: add Grade by color----
+  prop_gr <- function(x){
+    switch (input$Properties,
+            "Number of Bathroom"=
+              {ggplot(BR_gr(x),
+                      mapping = aes(BATHRM,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))}, 
+            "Number of Half-Bathroom"=
+              {ggplot(HFBR_gr(x),
+                      mapping = aes(HF_BATHRM,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Heating System"=
+              {ggplot(HE_gr(x),
+                      mapping = aes(HEAT,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Air Conditioning"=
+              {ggplot(AC_gr(x),
+                      mapping = aes(AC,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Number of Units"=
+              {ggplot(UN_gr(x),
+                      mapping = aes(NUM_UNITS,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Nunber of Rooms"=
+              {ggplot(RM_gr(x),
+                      mapping = aes(ROOMS,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Number of Bedrooms"=
+              {ggplot(BRM_gr(x),
+                      mapping = aes(BEDRM,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "The year main portion of the building was built"=
+              {ggplot(AYB_gr(x),
+                      mapping = aes(AYB,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Year structure was remodeled"=
+              {ggplot(RMY_gr(x),
+                      mapping = aes(YR_RMDL,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Most recent improvement year"=
+              {ggplot(EYB_gr(x),
+                      mapping = aes(EYB,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Number of stories"=
+              {ggplot(STO_gr(x),
+                      mapping = aes(STORIES,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Sale date"=
+              {ggplot(sad_gr(x),
+                      mapping = aes(SALEDATE,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            
+            "Sale number"=
+              {ggplot(san_gr(x),
+                      mapping = aes(SALE_NUM,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Gross building area"=
+              {ggplot(gba_gr(x),
+                      mapping = aes(GBA,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Structure"=
+              {ggplot(stru_gr(x),
+                      mapping = aes(STRUCT,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Grade"=
+              {ggplot(gr_gr(x),
+                      mapping = aes(GRADE,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Condition"=
+              {ggplot(cnd_gr(x),
+                      mapping = aes(CNDTN,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Number of kitchen"=
+              {ggplot(kit_gr(x),
+                      mapping = aes(KITCHENS,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Number of fireplace"=
+              {ggplot(fir_gr(x),
+                      mapping = aes(FIREPLACES,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Land area"=
+              {ggplot(laa_gr(x),
+                      mapping = aes(LANDAREA,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Zipcode"=
+              {ggplot(zip_gr(x),
+                      mapping = aes(ZIPCODE,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))},
+            "Quadrant"=
+              {ggplot(qu_gr(x),
+                      mapping = aes(QUADRANT,Avg.Price,fill=GRADE,colour=GRADE,group=GRADE))})
+    
+  }
+  
+  #Function: add condition by colorizing----
+  prop_cnd <- function(x){
+    switch (input$Properties,
+            "Number of Bathroom"=
+              {ggplot(BR_CN(x),
+                      mapping = aes(BATHRM,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))}, 
+            "Number of Half-Bathroom"=
+              {ggplot(HFBR_CN(x),
+                      mapping = aes(HF_BATHRM,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Heating System"=
+              {ggplot(HE_CN(x),
+                      mapping = aes(HEAT,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Air Conditioning"=
+              {ggplot(AC_CN(x),
+                      mapping = aes(AC,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Number of Units"=
+              {ggplot(UN_CN(x),
+                      mapping = aes(NUM_UNITS,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Nunber of Rooms"=
+              {ggplot(RM_CN(x),
+                      mapping = aes(ROOMS,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Number of Bedrooms"=
+              {ggplot(BRM_CN(x),
+                      mapping = aes(BEDRM,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "The year main portion of the building was built"=
+              {ggplot(AYB_CN(x),
+                      mapping = aes(AYB,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Year structure was remodeled"=
+              {ggplot(RMY_CN(x),
+                      mapping = aes(YR_RMDL,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Most recent improvement year"=
+              {ggplot(EYB_CN(x),
+                      mapping = aes(EYB,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Number of stories"=
+              {ggplot(STO_CN(x),
+                      mapping = aes(STORIES,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Sale date"=
+              {ggplot(sad_CN(x),
+                      mapping = aes(SALEDATE,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            
+            "Sale number"=
+              {ggplot(san_CN(x),
+                      mapping = aes(SALE_NUM,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Gross building area"=
+              {ggplot(gba_CN(x),
+                      mapping = aes(GBA,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Structure"=
+              {ggplot(stru_CN(x),
+                      mapping = aes(STRUCT,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Grade"=
+              {ggplot(gr_CN(x),
+                      mapping = aes(GRADE,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Condition"=
+              {ggplot(cnd_CN(x),
+                      mapping = aes(CNDTN,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Number of kitchen"=
+              {ggplot(kit_CN(x),
+                      mapping = aes(KITCHENS,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Number of fireplace"=
+              {ggplot(fir_CN(x),
+                      mapping = aes(FIREPLACES,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Land area"=
+              {ggplot(laa_CN(x),
+                      mapping = aes(LANDAREA,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Zipcode"=
+              {ggplot(zip_CN(x),
+                      mapping = aes(ZIPCODE,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))},
+            "Quadrant"=
+              {ggplot(qu_CN(x),
+                      mapping = aes(QUADRANT,Avg.Price,fill=CNDTN,colour=CNDTN,group=CNDTN))})
+    
+  }
+  
+  #Function: add quadrant by colorizing---- 
+  prop_qua <- function(x){
+    switch (input$Properties,
+            "Number of Bathroom"=
+              {ggplot(BR_QA(x),
+                      mapping = aes(BATHRM,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))}, 
+            "Number of Half-Bathroom"=
+              {ggplot(HFBR_QA(x),
+                      mapping = aes(HF_BATHRM,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Heating System"=
+              {ggplot(HE_QA(x),
+                      mapping = aes(HEAT,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Air Conditioning"=
+              {ggplot(AC_QA(x),
+                      mapping = aes(AC,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Number of Units"=
+              {ggplot(UN_QA(x),
+                      mapping = aes(NUM_UNITS,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Nunber of Rooms"=
+              {ggplot(RM_QA(x),
+                      mapping = aes(ROOMS,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Number of Bedrooms"=
+              {ggplot(BRM_QA(x),
+                      mapping = aes(BEDRM,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "The year main portion of the building was built"=
+              {ggplot(AYB_QA(x),
+                      mapping = aes(AYB,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Year structure was remodeled"=
+              {ggplot(RMY_QA(x),
+                      mapping = aes(YR_RMDL,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Most recent improvement year"=
+              {ggplot(EYB_QA(x),
+                      mapping = aes(EYB,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Number of stories"=
+              {ggplot(STO_QA(x),
+                      mapping = aes(STORIES,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Sale date"=
+              {ggplot(sad_QA(x),
+                      mapping = aes(SALEDATE,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            
+            "Sale number"=
+              {ggplot(san_QA(x),
+                      mapping = aes(SALE_NUM,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Gross building area"=
+              {ggplot(gba_QA(x),
+                      mapping = aes(GBA,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Structure"=
+              {ggplot(stru_QA(x),
+                      mapping = aes(STRUCT,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Grade"=
+              {ggplot(gr_QA(x),
+                      mapping = aes(GRADE,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Condition"=
+              {ggplot(cnd_QA(x),
+                      mapping = aes(CNDTN,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Number of kitchen"=
+              {ggplot(kit_QA(x),
+                      mapping = aes(KITCHENS,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Number of fireplace"=
+              {ggplot(fir_QA(x),
+                      mapping = aes(FIREPLACES,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Land area"=
+              {ggplot(laa_QA(x),
+                      mapping = aes(LANDAREA,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Zipcode"=
+              {ggplot(zip_QA(x),
+                      mapping = aes(ZIPCODE,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))},
+            "Quadrant"=
+              {ggplot(qu_QA(x),
+                      mapping = aes(QUADRANT,Avg.Price,fill=QUADRANT,colour=QUADRANT,group=QUADRANT))})
+    
+  }
+  
+  #Function: when y variable is price, specify x variabeles ----
+  propp <- function(x){
+    switch(input$Properties,
+           "Number of Bathroom"=x$BATHRM, 
+           "Number of Half-Bathroom"=x$HF_BATHRM,
+           "Heating System"=x$HEAT,
+           "Air Conditioning"=x$AC,
+           "Number of Units"=x$NUM_UNITS,
+           "Nunber of Rooms"=x$ROOMS,
+           "Number of Bedrooms"=x$BEDRM,
+           "The year main portion of the building was built"=x$AYB,
+           "Year structure was remodeled"=x$YR_RMDL,
+           "Most recent improvement year"=x$EYB,
+           "Number of stories"=x$STORIES,
+           "Sale date"=x$SALEDATE,
+           "Price"=x$PRICE,
+           "Sale number"=x$SALE_NUM,
+           "Gross building area"=x$GBA,
+           "Structure"=x$STRUCT,
+           "Grade"=x$GRADE,"Condition"=x$CNDTN,
+           "Number of kitchen"=x$KITCHENS,
+           "Number of fireplace"=x$FIREPLACES,
+           "Land area"=x$LANDAREA,
+           "Zipcode"=x$ZIPCODE,
+           "Quadrant"=x$QUADRANT)
+  }
+  
+  #Function: fill color for avg.price----
+  visual_col <- function(x){
+    switch (input$adddetails_color,
+      "AC" = prop_AC(x),
+      "GRADE"=prop_gr(x),
+      "CNDTN"=prop_cnd(x),
+      "QUADRANT"=prop_qua(x)
+    )
+  }
+  #Function: fill color for point plot(fixed: y-price/x-sale_number)----
+  visual_colpo <-function(x){
+    switch (input$adddetails_color,
+            "AC" = {ggplot(x,aes(SALE_NUM,PRICE,par(ps=6),color=factor(AC)))},
+            "GRADE"={ggplot(x,aes(SALE_NUM,PRICE,par(ps=6),color=GRADE))},
+            "CNDTN"={ggplot(x,aes(SALE_NUM,PRICE,par(ps=6),color=factor(CNDTN)))},
+            "QUADRANT"=ggplot(x,aes(SALE_NUM,PRICE,par(ps=6),color=factor(QUADRANT)))
+    )}
+  
+  #Function: fill color for chart when y variable is price----
+  visual_colp <-function(x){
+    switch (input$adddetails_color,
+            "AC" = {ggplot(x,aes(propp(x),PRICE,par(ps=6),color=factor(AC)))},
+            "GRADE"={ggplot(x,aes(propp(x),PRICE,par(ps=6),color=GRADE))},
+            "CNDTN"={ggplot(x,aes(propp(x),PRICE,par(ps=6),color=factor(CNDTN)))},
+            "QUADRANT"=ggplot(x,aes(propp(x),PRICE,par(ps=6),color=factor(QUADRANT)))
+    )
+  }
+  
+  #Function: set type when y variable is avg.price and the color has been selected----
+  plottype_ <- function(x){
+    switch (input$plottype2,
+            "Bar" = {visual_col(x)+geom_bar(stat="identity",
+                                            color="black"
+            )+
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+
+                theme(panel.border = element_blank()) +
+                theme(axis.line = element_line(size=1, colour = "white"))},
+            "Line"={visual_col(x)+geom_line(size=2)+
+                #geom_point(size=4)
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+   
+                theme(panel.border = element_blank()) +   
+                theme(axis.line = element_line(size=1, colour = "white"))},
+            "Area"={visual_col(x)+geom_area(aes(position="stack"),size=2)+
+                #geom_point(size=4, shape=20)+
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+   
+                theme(panel.border = element_blank()) +   
+                theme(axis.line = element_line(size=1, colour = "white"))},
+            "Point"={visual_col(x)+geom_point(
+              position = "jitter",
+              alpha=1,
+              pch=21
+            )+geom_smooth(method = lm, fullrange = TRUE, color = "black",span=1)+
+                # scale_color_manual(values=c("blue2","red4"))+
+                scale_size_continuous(range=c(4,10))+
+                xlab("Residential Property")+
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+   
+                theme(panel.border = element_blank())+
+                theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                          lineend = NULL, color = NULL, arrow = NULL,
+                                          inherit.blank = FALSE) )},
+            "Boxplot"={visual_col(x)+geom_boxplot()+xlab("Residential Property")+
+                ylim(0,4e+06)+
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+   
+                theme(panel.border = element_blank())+
+                theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                          lineend = NULL, color = NULL, arrow = NULL,
+                                          inherit.blank = FALSE) )}
+            
+    )
+  }
+  
+  #Function: set type when y variable is price and the color awesomecheckbox has been selected----
+  plottype_P <- function(x){
+    if(input$plottype2=="Point" || input$plottype2=="Boxplot"){
+      switch(input$plottype2,
+             "Point"={visual_colp(x)+geom_point(
+               position = "jitter",
+               alpha=0.3,
+               pch=21,
+               show.legend = FALSE
+             )+ylim(0,1e+07)+geom_smooth(method = lm, fullrange = TRUE, color = "black",span=1)+
+                 #scale_color_manual(values=c("blue2","red4"))+
+                 scale_size_continuous(range=c(4,10))+
+                 
+                 xlab("Residential Property")+
+                 theme(panel.grid =element_blank())+
+                 theme(axis.text = element_blank())+
+                 theme(axis.ticks = element_blank())+   
+                 theme(panel.border = element_blank())+
+                 theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                           lineend = NULL, color = NULL, arrow = NULL,
+                                           inherit.blank = FALSE) )},
+             "Boxplot"={visual_colp(x)+geom_boxplot()+xlab("Residential Property")+ylim(0,4e+06)+
+                 theme(legend.title=element_blank())+
+                 theme(panel.grid =element_blank())+
+                 theme(axis.text = element_blank())+
+                 theme(axis.ticks = element_blank())+   
+                 theme(panel.border = element_blank())+
+                 theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                           lineend = NULL, color = NULL, arrow = NULL,
+                                           inherit.blank = FALSE) )}
+      )} else return()
+    }
+  
+  printtext <- function(){
+    paste("Please choose plot type make sense!")
+    
+  }
+  
+  #Function:set type for avg.price without color awesomecheckbox seleted-----
+  plottype_nocol <- function(x){
+    # if(input$plottype2=="Area")
+    # {output$Meanless <- renderText({
+    #   printtext()
+    # })}
+    # else{
+    if(is.null(input$plottype2)==TRUE || input$plottype2=="Area")
+      return()
+    switch (input$plottype2,
+            "Bar" = {
+              prop(x)+geom_bar(stat="identity",
+                               color="black"
+              )+
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+
+                theme(panel.border = element_blank()) +
+                theme(axis.line = element_line(size=1, colour = "white"))},
+            "Line"={prop(x)+geom_line(size=2)+
+                #geom_point(size=4)
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+   
+                theme(panel.border = element_blank()) +   
+                theme(axis.line = element_line(size=1, colour = "white"))},
+            # "Area"={prop(x)+geom_area(aes(position="stack"),size=2)+
+            #     #geom_point(size=4, shape=20)+
+            #     theme(legend.title=element_blank())+
+            #     theme(panel.grid =element_blank())+
+            #     theme(axis.text = element_blank())+
+            #     theme(axis.ticks = element_blank())+   
+            #     theme(panel.border = element_blank()) +   
+            #     theme(axis.line = element_line(size=1, colour = "white"))},
+            "Point"={prop(x)+geom_point(
+              position = "jitter",
+              alpha=1,
+              pch=21
+            )+geom_smooth(method = lm, fullrange = TRUE, color = "black",span=1)+
+                scale_color_manual(values=c("blue2","red4"))+
+                scale_size_continuous(range=c(4,10))+
+                xlab("Residential Property")+
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+   
+                theme(panel.border = element_blank())+
+                theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                          lineend = NULL, color = NULL, arrow = NULL,
+                                          inherit.blank = FALSE) )},
+            "Boxplot"={prop(x)+geom_boxplot()+xlab("Residential Property")+
+                theme(legend.title=element_blank())+
+                theme(panel.grid =element_blank())+
+                theme(axis.text = element_blank())+
+                theme(axis.ticks = element_blank())+   
+                theme(panel.border = element_blank())+
+                theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                          lineend = NULL, color = NULL, arrow = NULL,
+                                          inherit.blank = FALSE) )}
+    )
+     
+    }
+    # else if(input$plottype2=="bar"){
+    # shinyjs::hide("Meanless")
+    
+    
+  
+  #Function:set type for price without color awesomecheckbox seleted
+  plottype_nocolP <- function(x){
+    if(input$plottype2=="Point" || input$plottype2=="Boxplot"){
+      switch(input$plottype2,
+             "Point"={ggplot(x,aes(propp(x),PRICE,par(ps=6),color=factor(PRICE)))+geom_point(
+               position = "jitter",
+               alpha=0.3,
+               pch=21,
+               show.legend = FALSE
+               
+             )+ylim(0,1e+07)+geom_smooth(method = lm, fullrange = TRUE, color = "black",span=1)+
+                 #scale_color_manual(values=c("blue2","red4"))+
+                 scale_size_continuous(range=c(4,10))+
+                 #facet_wrap(~SALEDATE,ncol=1)+
+                 xlab("Residential Property")+
+                 theme(panel.grid =element_blank())+
+                 theme(axis.text = element_blank())+
+                 theme(axis.ticks = element_blank())+
+                 theme(panel.border = element_blank())+
+                 theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                           lineend = NULL, color = NULL, arrow = NULL,
+                                           inherit.blank = FALSE) )},
+             "Boxplot"={ggplot(x,aes(propp(x),PRICE,par(ps=6),color=factor(PRICE)))+
+                 geom_boxplot()+xlab("Residential Property")+
+                 theme(legend.title=element_blank())+
+                 theme(panel.grid =element_blank())+
+                 theme(axis.text = element_blank())+
+                 theme(axis.ticks = element_blank())+   
+                 theme(panel.border = element_blank())+
+                 theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                           lineend = NULL, color = NULL, arrow = NULL,
+                                           inherit.blank = FALSE) )}
+      )} else return()}
+  
+  
+  values <- reactiveValues(
+    dc_f = DC_Properties
+  )
+  
+  observeEvent({
+    input$Local},{
+    zipcode_f <- input$Local
+    if(is.null(zipcode_f))
+      return()
+    
+    dc_f1 <<- values$dc_f %>%
+      dplyr::filter(ZIPCODE%in%zipcode_f)
+    
+    #assign("dc_f1", dc_f11, envir = .GlobalEnv)
+    
+    oup(dc_f1)
+    oup2(dc_f1)
+    rowdc <<- nrow(dc_f1)
+  })
+  
+  # myrange <- reactive({
+  #   cbind(input$price[1],input$price[2])
+  # })
+  # valuesbath <- reactiveValues()
+  # observeEvent(input$price,{
+  #   inprice <- input$price
+  #   if(is.null(inprice))
+  #     return()
+  #   dc_f2 <<- dplyr::filter(dc_f1,PRICE%in%myrange())
+  #   oup(dc_f2)
+  #   oup2(dc_f2)
+  #   rowdc <<- nrow(dc_f2)
+  # })
+  
+  vals <- reactiveValues(
+    keeprows = rep(TRUE, nrow(dc_f1))
+  )
+  
+  # output plot2: y-price & x-Salenumber----
+  oup2 <- function(x){
+    output$price_sale <- renderPlot({
+      keep    <- x[ vals$keeprows, , drop = FALSE]
+      exclude <- x[!vals$keeprows, , drop = FALSE]
+      
+      if(input$color==FALSE)
+      {ggplot(keep,aes(SALE_NUM,PRICE,par(ps=6)))+
+            geom_point(
+              position = "jitter",
+              alpha=0.4,
+              pch=21,
+              show.legend = FALSE,
+              size=4
+              
+            )+geom_smooth(method = lm, fullrange = TRUE, color = "black")+
+          coord_cartesian(ylim = c(0,2e+07))+
+          # geom_point(data=exclude,shape = 21, fill = NA, color = "black", alpha = 0.25)+
+            theme(panel.grid =element_blank())+
+            theme(axis.text = element_blank())+
+            theme(axis.ticks = element_blank())+   
+            theme(panel.border = element_blank())+
+            theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                      lineend = NULL, color = NULL, arrow = NULL,
+                                      inherit.blank = FALSE) )
+        
+
+      }
+      else if (input$color==TRUE)
+      {
+        visual_colpo(keep)+geom_point(
+          position = "jitter",
+          alpha=0.4,
+          pch=21,
+          show.legend = FALSE,
+          size=4
+        )+geom_smooth(method = lm, fullrange = TRUE, color = "black")+
+          coord_cartesian(ylim = c(0,2e+07))+
+          # geom_point(data=exclude,shape = 21, fill = NA, color = "black", alpha = 0.25)+
+          theme(panel.grid =element_blank())+
+          theme(axis.text = element_blank())+
+          theme(axis.ticks = element_blank())+   
+          theme(panel.border = element_blank())+
+          theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                    lineend = NULL, color = NULL, arrow = NULL,
+                                    inherit.blank = FALSE) )
+        }
+    })
+  }
+  
+  #output plot1: y-price/ avg.price & x-propeties----
+  oup <-  function(x) {
+    output$price_Prope <- renderPlot({
+    # keep    <- x[ vals$keeprows, , drop = FALSE]
+    # exclude <- x[!vals$keeprows, , drop = FALSE]
+    
+      if(input$color==FALSE)
+      {
+        if(input$yvar=="Avg.Price"){
+          plottype_nocol(x)
+        }
+        else if(input$yvar=="Price")
+        { 
+          #plottype_nocolP(x)
+          if(input$plottype2=="Point"){
+            ggplot(x,aes(propp(x),PRICE,par(ps=6)))+
+              geom_point(
+                position = "jitter",
+                alpha=0.3,
+                pch=21,
+                show.legend = FALSE
+                
+              )+xlab("Residential Property")+ylim(0,1e+07)+
+              theme(panel.grid =element_blank())+
+              theme(axis.text.y = element_blank())+
+              theme(axis.ticks.y = element_blank())+
+              theme(panel.border = element_blank())+
+              theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                        lineend = NULL, color = NULL, arrow = NULL,
+                                        inherit.blank = FALSE) )
+          }else if(input$plottype2=="Boxplot"){
+            ggplot(x,aes(propp(x),PRICE,par(ps=6)))+geom_boxplot()+xlab("Residential Property")+
+              theme(legend.title=element_blank())+
+              theme(panel.grid =element_blank())+
+              theme(axis.text = element_blank())+
+              theme(axis.ticks = element_blank())+   
+              theme(panel.border = element_blank())+
+              theme(line = element_line(colour = NULL, size = 0, linetype = 0,
+                                        lineend = NULL, color = NULL, arrow = NULL,
+                                        inherit.blank = FALSE) )
+          }}
+      }
+      else if (input$color==TRUE)
+      {
+        if(input$yvar=="Avg.Price"){
+            plottype_(x)
+        }
+        else if(input$yvar=="Price"){
+          plottype_P(x)
+        }
+      }
+    # geom_bar(exclude,fill=NA,alpha=0.1,color="white")
+    })}
+  
+  observeEvent(input$plottype,{
+    if(input$plottype2!="Point" && input$plottype2!="Boxplot"){
+      insertUI(selector = '#Meanless',
+               ui=printtext(),
+               session = session)}
+    else { 
+      removeUI(
+        selector = "#Meanless")
+      plottype_P(x)}
+  })
+  
+  
+  #Toggle points that are clicked-----
+  observeEvent(input$p4cc, {
+    res <- nearPoints(dc_f1, input$p4cc, allRows = TRUE)
+
+    vals$keeprows <- xor(vals$keeprows, res$selected_)
+  })
+  
+  # clickT <- function(x){
+  #   res <- nearPoints(x, input$p4cc, allRows = TRUE)
+  #   
+  #   vals$keeprows <- xor(vals$keeprows, res$selected_)
+  # }
+  # clickT(dc_f1)
+  # brushT(dc_f1)
+  # resetP(dc_f1)
+  
+  # Toggle points that are brushed, when button is clicked----
+  observeEvent(input$exclude_toggle, {
+    res <- brushedPoints(dc_f1, input$p4b, allRows = TRUE)
+
+    vals$keeprows <- xor(vals$keeprows, res$selected_)
+  })
+  
+  # brushT <- function(x){
+  #   res <- brushedPoints(x, input$p4b, allRows = TRUE)
+  # 
+  #   vals$keeprows <- xor(vals$keeprows, res$selected_)
+  # }
+  
+  # Reset all points-----
+  observeEvent(input$exclude_reset, {
+    vals$keeprows <- rep(TRUE, nrow(dc_f1))
+  })
+  
+  #-------
+  # resetP <- function(x){
+  #   vals$keeprows <- rep(TRUE, nrow(x))
+  # }
+  
+  # observeEvent(input$Local,{
+  #   #zipcode_f <- 
+  #   
+  #   values$dc_f %>% 
+  #     dplyr::filter(ZIPCODE %in% input$Local) %>% 
+  #     filter(BATHRM %in% input$bathroom)
+  #   # vals <- reactiveValues(
+  #   #   keeprows = rep(TRUE, nrow(dc_f))
+  #   # )
+  #   
+  #   output$price_Prope <- renderPlot({
+  #     # keep    <- dc_f[ vals$keeprows, , drop = FALSE]
+  #     # exclude <- dc_f[!vals$keeprows, , drop = FALSE]
+  #     
+  #     prop(values$dc_f)+geom_bar(stat="identity",
+  #                     color="black",
+  #                     show.legend = FALSE)+
+  #       theme(panel.grid =element_blank())+
+  #       theme(axis.text = element_blank())+
+  #       theme(axis.ticks = element_blank())+
+  #       theme(panel.border = element_blank()) +   
+  #       theme(axis.line = element_line(size=1, colour = "white"))
+  #       # geom_bar(exclude,fill=NA,alpha=0.1,color="white")
+  #       
+  #   })
+  #   
+  # })
+  
+  
+  
+  
+  
+    # output$price_Prope <- renderPlot({-----
+    # 
+    #     BR_PR <- summarize(group_by(DC_Properties,DC_Properties$prop()),mean(PRICE))
+    #     names(BR_PR)[2] <- "Avg.Price"
+    #     ggplot(BR_PR)+
+    #       geom_bar(BR_PR,mapping = aes(prop(), Avg.Price,fill=Avg.Price),
+    #                stat = "identity",
+    #                show.legend = FALSE,
+    #                color="white")
+    # })
+ 
+  # DC_Properties$BATHRM----
+  # class(as.vector(unlist(DC_Properties[2])))
+  #   output$price_Prope <- renderPlot({
+  #    
+  #       BR_PR <- summarize(group_by(DC_Properties,as.vector(unlist(DC_Properties[pp()]))),mean(PRICE))
+  #       names(BR_PR)[2] <- "Avg.Price"
+  #       ggplot(BR_PR)+
+  #         geom_bar(BR_PR,mapping = aes(names(DC_Properties[pp()]), Avg.Price,fill=Avg.Price),
+  #                  stat = "identity",
+  #                  show.legend = FALSE,
+  #                  color="white")
+  #       
+  #     
+  #   
+  #     
+  # })
+  sizep <- reactive({
+    switch (input$adddetails_size,
+      "BATHRM" = "BATHRM",
+      "HF_BATHRM"="HF_BATHRM",
+      "NUM_UNITS"="NUM_UNITS",
+      "ROOMS"="ROOMS",
+      "BEDRM"="BEDRM",
+      "STORIES"="STORIES",
+      "SALE_NUM"="SALE_NUM",
+      "GBA"="GBA",
+      "KITCHENS"="KITCHENS",
+      "FIREPLACES"="FIREPLACES",
+      "LANDAREA"="LANDAREA"
+      
+    ) })
+  # plotypeAc <- reactive({
+  #   
+  #   switch (input$plottype2,
+  #     "Bar" = {p+geom_bar(stat="identity",show.legend = FALSE,color="white")},
+  #     "Scatter"={p+geom_point()}
+  #   )
+  # })
+  
+  #------
+    # output$price_Prope <- renderPlot({
+    #   if (input$yvar=="Avg.Price"){
+    #     #bathroom
+    #     if(input$Properties=="Number of Bathroom"){
+    #       BR_PR <- summarize(group_by(DC_Properties,BATHRM),mean(PRICE))
+    #       names(BR_PR)[2] <- "Avg.Price"
+    #       if(input$color==TRUE){
+    #         if(input$adddetails_color=="AC"){
+    #           p <-  ggplot(BR_PR_AC,mapping = aes(BATHRM, Avg.Price, fill=factor(AC)))}
+    #         else if(input$adddetails_color=="HEAT")
+    #           p <-  ggplot(BR_PR_HE,mapping = aes(BATHRM, Avg.Price, fill=factor(HEAT)))}
+    #         
+    #       }
+    #       else {p <-  ggplot(BR_PR,mapping = aes(BATHRM, Avg.Price, fill=Avg.Price)
+    #         )}
+    #   }
+    #   #half bathrm
+    #     else if(input$Properties=="Number of Half-Bathroom"){
+    #       HBR_PR <- summarize(group_by(DC_Properties,HF_BATHRM),mean(PRICE))
+    #       names(HBR_PR)[2] <- "Avg.Price"
+    #       if(input$color==TRUE){
+    #         if(input$adddetails_color=="AC"){
+    #           p <-  ggplot(HBR_PR_AC,mapping = aes(HF_BATHRM, Avg.Price, fill=factor(AC)))}
+    #         else if(input$adddetails_color=="HEAT")
+    #           p <-  ggplot(HBR_PR_HE,mapping = aes(HF_BATHRM, Avg.Price, fill=factor(HEAT)))}}
+    #       else {p <-  ggplot(HBR_PR,mapping = aes(HF_BATHRM, Avg.Price, fill=Avg.Price)
+    #       )}
+    #   
+    #   
+    #   p+geom_bar(stat="identity",show.legend = FALSE,color="white")
+    #   # if(input$plottype2=="Bar"){
+    #   #   p+geom_bar(stat="identity",show.legend = FALSE,color="white")
+    #   # }
+    #   # else if(input$plottype2=="Scatter"){
+    #   #     p+geom_point()
+    #   # }
+    # })
+
+}
+
+shinyApp(ui=ui, server=shinyServer)
+
+
+
+
+```
+
