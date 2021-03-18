@@ -1,4 +1,4 @@
-# DC-Residential-Properties
+# DC-Residential-Properties Visualization Web App
 DC Residential Properties web app was developed with the aim of providing user the information 
 regarding the DC Properties. The user can select different variables in the widget and see the 
 variation of prices of DC properties based on those variables. We have also provided an 
